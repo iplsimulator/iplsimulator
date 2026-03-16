@@ -3251,6 +3251,7 @@ function initMakePlayerPage() {
         if (status) {
           status.textContent = `Added ${preview.name} to ${teamCode}. Saved in this browser.`;
         }
+        launchMakePlayerAddChecks();
         renderMakePlayerCustomList();
         renderAll();
         renderMakePlayerPreview();
@@ -4052,6 +4053,19 @@ function launchGameOutcomeSymbols(isWin) {
     horizontalInset: 12,
     driftRange: 180,
     delayRange: 160
+  });
+}
+
+function launchMakePlayerAddChecks() {
+  launchOutcomeSymbolBurst({
+    isWin: true,
+    pieces: 8,
+    symbol: "\u2705",
+    durationMin: 1700,
+    durationRange: 700,
+    horizontalInset: 20,
+    driftRange: 120,
+    delayRange: 140
   });
 }
 
