@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IPL 2026 Franchise</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="preload" href="styles.css?v=20260316b" as="style" />
+  <link rel="preload" href="app.js?v=20260316b" as="script" />
+  <link rel="prefetch" href="ratings.html" />
+  <link rel="prefetch" href="custom.html" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css?v=20260316b" />
+</head>
+<body>
+  <div id="confetti-layer" class="confetti-layer" aria-hidden="true"></div>
+  <div id="mvp-layer" class="confetti-layer" aria-hidden="true"></div>
+  <div class="app-shell">
+    <nav class="top-nav">
+      <a class="nav-link active" href="index.html">Simulator</a>
+      <a class="nav-link" href="ratings.html">Player Ratings</a>
+      <a class="nav-link" href="custom.html">Custom XI</a>
+      <a class="nav-link" href="make-player.html">Make A Player</a>
+      <button id="how-to-play-trigger" class="nav-link nav-button" type="button">How to Play</button>
+      <button id="contact-trigger" class="nav-link nav-button nav-contact" type="button">Contact</button>
+    </nav>
+    <header class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">IPL 2026 Franchise Simulator</p>
+        <h1>Season-by-season cricket simulation with a polished franchise dashboard.</h1>
+        <p class="hero-text">
+          Lock in your team, tune the playing XI, and simulate one game at a time or run the full season.
+          Every screen is built to feel like a season hub, with quick access to lineups, scorecards, standings, and awards races.
+        </p>
+        <div class="hero-actions" id="hero-actions-panel">
+          <button id="simulate-next" class="primary-btn">Simulate Game</button>
+          <button id="simulate-season" class="ghost-btn">Simulate Season</button>
+        </div>
+      </div>
+
+      <section class="scoreboard-panel">
+        <div class="scoreboard-top">
+          <span>Next Team Game</span>
+          <span id="season-chip">2025 Base Roster Set</span>
+        </div>
+        <div class="scoreboard-matchup">
+          <div>
+            <p class="team-code" id="featured-home-code">CSK</p>
+            <p class="team-name" id="featured-home-name">Chennai Super Kings</p>
+          </div>
+          <p class="versus">vs</p>
+          <div class="right-side">
+            <p class="team-code" id="featured-away-code">MI</p>
+            <p class="team-name" id="featured-away-name">Mumbai Indians</p>
+          </div>
+        </div>
+        <div class="scoreboard-metrics">
+          <div>
+            <span class="metric-label">Home OVR</span>
+            <strong id="featured-home-ovr">90</strong>
+          </div>
+          <div>
+            <span class="metric-label">Away OVR</span>
+            <strong id="featured-away-ovr">89</strong>
+          </div>
+          <div>
+            <span class="metric-label">Venue Bias</span>
+            <strong id="featured-venue">Balanced</strong>
+          </div>
+        </div>
+        <div id="featured-result" class="featured-result">
+          Choose your team, set the lineup, and simulate the next game on the schedule.
+        </div>
+      </section>
+    </header>
+
+    <div id="how-to-play-overlay" class="how-to-play-overlay" hidden>
+      <div id="how-to-play-backdrop" class="how-to-play-backdrop"></div>
+      <section id="how-to-play-panel" class="how-to-play-panel" role="dialog" aria-modal="true" aria-labelledby="how-to-play-title">
+        <button id="how-to-play-close" class="how-to-play-dismiss" type="button" aria-label="Close how to play">×</button>
+        <p id="how-to-play-label" class="eyebrow">HOW TO PLAY</p>
+        <h2 id="how-to-play-title" class="how-to-play-title">Simulating Games</h2>
+        <div class="how-to-play-body">
+          <button id="how-to-play-prev" class="how-to-play-nav" type="button" aria-label="Previous help card">‹</button>
+          <div id="how-to-play-content" class="how-to-play-content"></div>
+          <button id="how-to-play-next" class="how-to-play-nav" type="button" aria-label="Next help card">›</button>
+        </div>
+        <div class="how-to-play-footer">
+          <div id="how-to-play-dots" class="how-to-play-dots" aria-hidden="true"></div>
+        </div>
+      </section>
+    </div>
+
+    <div id="contact-overlay" class="info-overlay" hidden>
+      <div id="contact-backdrop" class="info-backdrop"></div>
+      <section id="contact-panel" class="info-panel" role="dialog" aria-modal="true" aria-labelledby="contact-title">
+        <button id="contact-close" class="info-dismiss" type="button" aria-label="Close contact">×</button>
+        <p class="eyebrow">CONTACT</p>
+        <h2 id="contact-title" class="info-title">Get in touch</h2>
+        <article class="info-card">
+          <h3>Feedback / bug? <a class="inline-award-link" href="mailto:iplsimulator@gmail.com">iplsimulator@gmail.com</a></h3>
+        </article>
+      </section>
+    </div>
+
+    <main class="dashboard-grid">
+      <section id="team-hub-section" class="panel panel-wide">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Team Hub</p>
+            <h2>Choose Your Team</h2>
+          </div>
+          <div class="selector-row">
+            <label>
+              Team
+              <select id="franchise-team-select"></select>
+            </label>
+          </div>
+        </div>
+        <div id="team-cards" class="team-cards"></div>
+      </section>
+
+      <section id="live-scorecard-section" class="panel">
+        <div class="panel-heading compact">
+          <div>
+            <p class="eyebrow">Live Scorecard</p>
+            <h2>Featured Match Detail</h2>
+          </div>
+        </div>
+        <div id="latest-scorecard" class="scorecard-panel"></div>
+      </section>
+
+      <section id="lineup-builder-section" class="panel panel-wide">
+        <div class="panel-heading compact">
+          <div>
+            <p class="eyebrow">Lineup Builder</p>
+            <h2 id="roster-title">Chennai Super Kings XI</h2>
+          </div>
+          <div class="roster-summary">
+            <span id="roster-team-style">Powerplay Control</span>
+            <span id="roster-team-ovr">OVR 90</span>
+          </div>
+        </div>
+        <div id="lineup-impact-warning"></div>
+        <div id="player-grid" class="player-grid"></div>
+      </section>
+
+      <section id="sim-feed-section" class="panel">
+        <div class="panel-heading compact">
+          <div>
+            <p class="eyebrow">Sim Feed</p>
+            <h2>Recent Results</h2>
+          </div>
+        </div>
+        <div id="match-log" class="match-log"></div>
+      </section>
+
+      <section id="standings-section" class="panel">
+        <div class="panel-heading compact">
+          <div>
+            <p class="eyebrow">Standings</p>
+            <h2>Season Table</h2>
+          </div>
+        </div>
+        <div id="standings" class="table-wrap"></div>
+      </section>
+
+      <section id="awards-watch-section" class="panel">
+        <div class="panel-heading compact">
+          <div>
+            <p class="eyebrow">Awards Watch</p>
+            <h2>League Leaders</h2>
+          </div>
+        </div>
+        <div id="award-races" class="award-races"></div>
+        <div class="season-stats-panel">
+          <div class="season-stats-head">
+            <div>
+              <p class="eyebrow">Season Stats</p>
+              <h3>Top 5 Tracker</h3>
+            </div>
+            <label class="season-stats-filter" for="season-stat-select">
+              Stat
+              <select id="season-stat-select">
+                <option value="runs">Runs</option>
+                <option value="wickets">Wickets</option>
+                <option value="highestScore">Highest Scores</option>
+                <option value="bestBowlingFigures">Best Bowling Figures</option>
+                <option value="battingAverage">Batting Average</option>
+                <option value="strikeRate">Strike Rate</option>
+                <option value="economy">Economy</option>
+                <option value="bowlingAverage">Bowling Average</option>
+                <option value="sixes">Sixes</option>
+                <option value="impact">Impact</option>
+              </select>
+            </label>
+          </div>
+          <div id="season-stat-leaders" class="season-stat-leaders"></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>
+        Step into the league office, track every contender, and shape your own IPL storyline one sim at a time.
+      </p>
+      <div class="ticker-wrap" aria-label="League results ticker">
+        <div id="results-ticker" class="results-ticker">League results will scroll here on simulation</div>
+      </div>
+    </footer>
+  </div>
+
+  <script src="players-data.js?v=20260315k"></script>
+  <script src="app.js?v=20260316b"></script>
+</body>
+</html>
