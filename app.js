@@ -1,0 +1,4643 @@
+const TEAM_DEFINITIONS = [
+  { code: "CSK", name: "Chennai Super Kings", identity: "Powerplay Control", venue: "Chepauk spin control", colors: ["#f6d246", "#1f3256"] },
+  { code: "MI", name: "Mumbai Indians", identity: "Star Core Explosiveness", venue: "Wankhede chase bias", colors: ["#58d4ff", "#0b2a70"] },
+  { code: "RCB", name: "Royal Challengers Bengaluru", identity: "Pace and Launch Angles", venue: "High-scoring Chinnaswamy", colors: ["#ffbf4f", "#a50025"] },
+  { code: "KKR", name: "Kolkata Knight Riders", identity: "Chaos and Matchups", venue: "Spin-to-pace handoff", colors: ["#c4a65a", "#341b5d"] },
+  { code: "SRH", name: "Sunrisers Hyderabad", identity: "Volume Offense", venue: "Flat deck firepower", colors: ["#ffb15c", "#ef5b00"] },
+  { code: "RR", name: "Rajasthan Royals", identity: "Top-Order Precision", venue: "Balanced with late seam", colors: ["#ff98bd", "#2042a7"] },
+  { code: "GT", name: "Gujarat Titans", identity: "Balanced Match Control", venue: "Pace up front, grip late", colors: ["#9be4ff", "#112654"] },
+  { code: "DC", name: "Delhi Capitals", identity: "Youth Burst and Wrist Spin", venue: "Pace-friendly start", colors: ["#57d1ff", "#0a2a88"] },
+  { code: "LSG", name: "Lucknow Super Giants", identity: "Middle-Order Pressure", venue: "Slow surface matchup ball", colors: ["#77f7ff", "#0b4ea4"] },
+  { code: "PBKS", name: "Punjab Kings", identity: "High Variance Shotmaking", venue: "Launchpad with dew", colors: ["#f6a4a4", "#b30d27"] }
+];
+
+const DEFAULT_IMPACT_PLAYERS = {
+  RCB: ["Tim David", "Yash Dayal"],
+  CSK: ["Sanju Samson", "Noor Ahmad"],
+  MI: ["Rohit Sharma", "Trent Boult"],
+  PBKS: ["Priyansh Arya", "Arshdeep Singh"],
+  KKR: ["Angkrish Raghuvanshi", "Umran Malik"],
+  DC: ["Prithvi Shaw", "Kuldeep Yadav"],
+  RR: ["Vaibhav Suryavanshi", "Tushar Deshpande"],
+  LSG: ["Aiden Markram", "Digvesh Rathi"],
+  GT: ["Sai Sudharsan", "Prasidh Krishna"],
+  SRH: ["Ishan Kishan", "Zeeshan Ansari"]
+};
+
+const CUSTOM_PLAYERS_STORAGE_KEY = "cricketsim.customPlayers";
+
+let teams = createEmptyTeams();
+
+const state = {
+  selectedTeam: "CSK",
+  homeTeam: "CSK",
+  awayTeam: "MI",
+  franchiseTeam: "CSK",
+  opponentTeam: "MI",
+  ratingsFilter: "ALL",
+  ratingsSort: "overall",
+  seasonStat: "runs",
+  customOpponentMode: "league",
+  customLeagueOpponent: "MI",
+  matchLog: [],
+  tickerLabel: "",
+  tickerItems: [],
+  lastCelebratedChampion: null,
+  lastCelebratedTournamentMvp: null,
+  lastSeasonLossChampion: null,
+  season: resetSeason(),
+  draggedLineupIndex: null,
+  selectedLineupSwap: null,
+  lineupCardFlips: {},
+  impactSubs: {},
+  lineupValidationTeam: null,
+  customSelections: {
+    teamA: [],
+    teamB: []
+  },
+  dataError: null
+};
+
+initApp();
+
+function player(name, role, battingStyle, intent, composure, sixthArg, seventhArg = null, eighthArg = null, ninthArg = null, tenthArg = false, eleventhArg = false, twelfthArg = 78, thirteenthArg = 72) {
+  if (typeof name === "object" && name !== null) {
+    const row = name;
+    const normalizedBowling = row.bowling === "" || row.bowling === undefined ? null : Number(row.bowling);
+    const normalizedEcon = row.econ === "" || row.econ === undefined ? null : Number(row.econ);
+    const normalizedWkts = row.wkts === "" || row.wkts === undefined ? null : Number(row.wkts);
+    const { econ, wkts } = deriveBowlingTargets(normalizedBowling, normalizedEcon, normalizedWkts);
+
+    const createdPlayer = player(
+      row.playerName,
+      row.sourceRole,
+      row.battingStyle || (row.battingHand === "left" ? "LHB" : "RHB"),
+      Number(row.intent),
+      Number(row.composure),
+      econ,
+      wkts,
+      row.bowlingType || (normalizedBowling && normalizedBowling > 25 ? "pacer" : "none"),
+      row.bowlingHand || "none",
+      toBoolean(row.opener),
+      toBoolean(row.deathBowl),
+      Number(row.fielding || 78),
+      Number(row.leadership || 72)
+    );
+    createdPlayer.customId = row.customId || null;
+    createdPlayer.isCustom = Boolean(row.customId || toBoolean(row.isCustom));
+    createdPlayer.teamCode = row.teamCode || null;
+    return createdPlayer;
+  }
+
+  const econOverride = clamp(sixthArg ?? 25, 25, 99);
+  const wktsOverride = clamp(seventhArg ?? 25, 25, 99);
+  const bowlingRating = calculateBowlingRatingFromSkills(econOverride, wktsOverride);
+  const fieldingRating = clamp(twelfthArg ?? 78, 70, 99);
+  const leadershipRating = clamp(thirteenthArg ?? 72, 70, 99);
+
+  const synthetic = buildSyntheticPlayerStats({
+    intentTarget: intent,
+    composureTarget: composure,
+    econTarget: econOverride,
+    wktsTarget: wktsOverride
+  });
+  return {
+    name,
+    role,
+    battingStyle,
+    battingHand: battingStyle === "LHB" ? "left" : "right",
+    bowlingType: eighthArg || "none",
+    bowlingHand: ninthArg || "none",
+    opener: Boolean(tenthArg),
+    deathBowl: Boolean(eleventhArg),
+    fielding: fieldingRating,
+    leadership: leadershipRating,
+    customId: null,
+    isCustom: false,
+    teamCode: null,
+    batting: synthetic.batting,
+    bowling: synthetic.bowling,
+    makePlayerTargets: {
+      intent,
+      composure,
+      bowling: bowlingRating,
+      econ: econOverride,
+      wkts: wktsOverride,
+      fielding: fieldingRating,
+      leadership: leadershipRating
+    }
+  };
+}
+
+function deriveBowlingTargets(bowlingRating, econ, wkts) {
+  if (econ !== null && wkts !== null) {
+    return { econ, wkts };
+  }
+
+  const baseRating = clamp(bowlingRating ?? 25, 25, 99);
+  return {
+    econ: baseRating,
+    wkts: baseRating
+  };
+}
+
+function createEmptyTeams() {
+  return TEAM_DEFINITIONS.map((team) => ({ ...team, players: [] }));
+}
+
+async function initApp() {
+  initHowToPlayModal();
+  try {
+    teams = await loadTeamsFromCsv();
+    hydrateRatings();
+    initializeStateFromTeams();
+    initControls();
+    renderAll();
+  } catch (error) {
+    console.error("Failed to initialize player database from CSV.", error);
+    state.dataError = error;
+    renderDataLoadError(error);
+  }
+}
+
+async function fetchPlayersCsvText() {
+  try {
+    const response = await fetch("players2026.csv");
+    if (!response.ok) {
+      throw new Error(`Unable to load players2026.csv (${response.status})`);
+    }
+    return await response.text();
+  } catch (error) {
+    const fallbackCsv = window.PLAYERS_CSV_TEXT || "";
+    if (!fallbackCsv) {
+      throw error;
+    }
+    return fallbackCsv;
+  }
+}
+
+async function loadTeamsFromCsv() {
+  const csvText = await fetchPlayersCsvText();
+  const rows = [
+    ...parseCsv(csvText),
+    ...loadCustomPlayerRows()
+  ].map(normalizePlayerRow);
+  const playersByTeam = new Map();
+
+  rows.forEach((row) => {
+    if (!playersByTeam.has(row.teamCode)) {
+      playersByTeam.set(row.teamCode, []);
+    }
+    playersByTeam.get(row.teamCode).push(player(row));
+  });
+
+  return TEAM_DEFINITIONS.map((team) => ({
+    ...team,
+    players: playersByTeam.get(team.code) || []
+  }));
+}
+
+function parseCsv(csvText) {
+  const lines = csvText.trim().split(/\r?\n/).filter(Boolean);
+  if (!lines.length) return [];
+
+  const headers = parseCsvLine(lines[0]);
+  return lines.slice(1).map((line) => {
+    const values = parseCsvLine(line);
+    return headers.reduce((row, header, index) => {
+      row[header] = values[index] ?? "";
+      return row;
+    }, {});
+  });
+}
+
+function parseCsvLine(line) {
+  const values = [];
+  let current = "";
+  let insideQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    const nextCharacter = line[index + 1];
+
+    if (character === "\"") {
+      if (insideQuotes && nextCharacter === "\"") {
+        current += "\"";
+        index += 1;
+      } else {
+        insideQuotes = !insideQuotes;
+      }
+      continue;
+    }
+
+    if (character === "," && !insideQuotes) {
+      values.push(current);
+      current = "";
+      continue;
+    }
+
+    current += character;
+  }
+
+  values.push(current);
+  return values;
+}
+
+function normalizePlayerRow(row) {
+  return {
+    teamCode: row.teamCode,
+    playerName: row.playerName,
+    sourceRole: row.sourceRole,
+    battingStyle: row.battingStyle || (row.battingHand === "left" ? "LHB" : "RHB"),
+    battingHand: row.battingHand || (row.battingStyle === "LHB" ? "left" : "right"),
+    bowlingType: row.bowlingType || "none",
+    bowlingHand: row.bowlingHand || "none",
+    opener: toBoolean(row.opener),
+    deathBowl: toBoolean(row.deathBowl),
+    intent: Number(row.intent),
+    composure: Number(row.composure),
+    bowling: row.bowling,
+    econ: row.econ,
+    wkts: row.wkts,
+    fielding: Number(row.fielding || 78),
+    leadership: Number(row.leadership || 72),
+    customId: row.customId || null,
+    isCustom: toBoolean(row.isCustom)
+  };
+}
+
+function loadCustomPlayerRows() {
+  try {
+    const stored = window.localStorage.getItem(CUSTOM_PLAYERS_STORAGE_KEY);
+    if (!stored) {
+      return [];
+    }
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.warn("Could not read custom players from localStorage.", error);
+    return [];
+  }
+}
+
+function initHowToPlayModal() {
+  return;
+}
+
+function saveCustomPlayerRows(rows) {
+  window.localStorage.setItem(CUSTOM_PLAYERS_STORAGE_KEY, JSON.stringify(rows));
+}
+
+function createCustomPlayerRow(teamCode) {
+  const preview = buildMakePlayerPreviewData();
+  const ratings = calculateRatings(preview);
+  return {
+    customId: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    isCustom: "TRUE",
+    teamCode,
+    playerName: preview.name,
+    sourceRole: preview.role,
+    battingStyle: preview.battingStyle,
+    battingHand: preview.battingHand,
+    bowlingType: preview.bowlingType,
+    bowlingHand: preview.bowlingHand,
+    opener: preview.opener ? "TRUE" : "FALSE",
+    deathBowl: preview.deathBowl ? "TRUE" : "FALSE",
+    intent: String(preview.makePlayerTargets.intent),
+    composure: String(preview.makePlayerTargets.composure),
+    bowling: String(ratings.bowling),
+    econ: String(preview.makePlayerTargets.econ),
+    wkts: String(preview.makePlayerTargets.wkts),
+    fielding: String(preview.makePlayerTargets.fielding),
+    leadership: String(preview.makePlayerTargets.leadership)
+  };
+}
+
+function addCustomPlayerToRuntime(row) {
+  const team = findTeam(row.teamCode);
+  if (!team) {
+    return;
+  }
+  const normalized = normalizePlayerRow(row);
+  const customPlayer = player(normalized);
+  ensurePlayerRuntimeState(customPlayer);
+  customPlayer.teamCode = row.teamCode;
+  team.players = [...team.players, customPlayer];
+  team.teamRatings = calculateTeamRatings(team.players);
+  team.attackProfile = buildAttackProfile(team.players);
+  if (!state.teamLineups?.[team.code]) {
+    state.teamLineups[team.code] = team.players.map((playerData) => playerData.name);
+  } else if (!state.teamLineups[team.code].includes(customPlayer.name)) {
+    state.teamLineups[team.code] = [...state.teamLineups[team.code], customPlayer.name];
+  }
+}
+
+function removeCustomPlayerFromRuntime(customId) {
+  teams.forEach((team) => {
+    const removedPlayers = team.players.filter((playerData) => playerData.customId === customId);
+    if (!removedPlayers.length) {
+      return;
+    }
+    const removedNames = new Set(removedPlayers.map((playerData) => playerData.name));
+    team.players = team.players.filter((playerData) => playerData.customId !== customId);
+    team.teamRatings = calculateTeamRatings(team.players);
+    team.attackProfile = buildAttackProfile(team.players);
+    if (state.teamLineups?.[team.code]) {
+      state.teamLineups[team.code] = state.teamLineups[team.code].filter((name) => !removedNames.has(name));
+    }
+    if (state.impactSubs?.[team.code]) {
+      state.impactSubs[team.code] = state.impactSubs[team.code].filter((name) => !removedNames.has(name));
+      if (state.impactSubs[team.code].length < 2) {
+        state.impactSubs[team.code] = getDefaultImpactSubNames(team.code);
+      }
+    }
+    ["teamA", "teamB"].forEach((key) => {
+      if (Array.isArray(state.customSelections?.[key])) {
+        state.customSelections[key] = state.customSelections[key].filter((name) => !removedNames.has(name));
+      }
+    });
+  });
+}
+
+function initializeStateFromTeams() {
+  if (!teams.length || teams.some((team) => !team.players.length)) {
+    throw new Error("Player data did not populate all teams from CSV.");
+  }
+
+  state.selectedTeam = findTeam(state.selectedTeam)?.code || teams[0].code;
+  state.homeTeam = findTeam(state.homeTeam)?.code || teams[0].code;
+  state.awayTeam = findTeam(state.awayTeam)?.code || teams[1]?.code || teams[0].code;
+  state.franchiseTeam = findTeam(state.franchiseTeam)?.code || teams[0].code;
+  state.opponentTeam = findTeam(state.opponentTeam)?.code || nextTeamCode(state.franchiseTeam);
+  if (state.opponentTeam === state.franchiseTeam) {
+    state.opponentTeam = nextTeamCode(state.franchiseTeam);
+  }
+  state.homeTeam = state.franchiseTeam;
+  state.awayTeam = state.opponentTeam;
+  state.selectedTeam = state.franchiseTeam;
+  state.customLeagueOpponent = findTeam(state.customLeagueOpponent)?.code || teams[1]?.code || teams[0].code;
+  state.season = resetSeason();
+  syncFeaturedMatchToSeason();
+  state.customSelections = buildDefaultCustomSelections();
+  state.teamLineups = buildDefaultTeamLineups();
+  state.impactSubs = Object.fromEntries(
+    teams.map((team) => [team.code, getDefaultImpactSubNames(team.code)])
+  );
+  state.lineupValidationTeam = null;
+  state.lastSeasonLossChampion = null;
+}
+
+function buildDefaultTeamLineups() {
+  return Object.fromEntries(
+    teams.map((team) => [team.code, team.players.map((playerData) => playerData.name)])
+  );
+}
+
+function buildDefaultCustomSelections() {
+  return {
+    teamA: Array.from({ length: 11 }, (_, index) => teams[Math.floor(index / 2)].players[index % teams[Math.floor(index / 2)].players.length].name),
+    teamB: Array.from({ length: 11 }, (_, index) => teams[(index + 3) % teams.length].players[index % teams[(index + 3) % teams.length].players.length].name)
+  };
+}
+
+function renderDataLoadError(error) {
+  const message = error?.message || "Unknown error";
+  document.body.innerHTML = `
+    <div class="app-shell">
+      <main class="dashboard-grid">
+        <section class="panel panel-wide">
+          <div class="panel-heading compact">
+            <div>
+            <p class="eyebrow">Database Load Error</p>
+            <h2>Could not read players2026.csv</h2>
+          </div>
+        </div>
+        <div class="scorecard-block">
+          <p class="player-season-line">${message}</p>
+            <p class="player-season-line">The app will use the CSV directly when available and fall back to bundled data if the browser blocks local file requests.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+  `;
+}
+
+function hydrateRatings() {
+  teams.forEach((team) => {
+    team.players.forEach((playerData) => {
+      ensurePlayerRuntimeState(playerData);
+    });
+    team.teamRatings = calculateTeamRatings(team.players);
+    team.attackProfile = buildAttackProfile(team.players);
+  });
+}
+
+function ensurePlayerRuntimeState(playerData) {
+  if (!playerData) {
+    return null;
+  }
+
+  if (!playerData.ratings) {
+    playerData.ratings = calculateRatings(playerData);
+  }
+  if (!playerData.roleProfile) {
+    playerData.roleProfile = inferRoleProfile(playerData);
+  }
+  if (!playerData.archetype) {
+    playerData.archetype = playerData.roleProfile.label;
+  }
+  if (!playerData.role) {
+    playerData.role = playerData.roleProfile.label;
+  }
+  if (!playerData.profile) {
+    playerData.profile = inferPlayerProfile(playerData);
+  }
+
+  return playerData;
+}
+
+function calculateRatings(playerData) {
+  const recentWeights = [0.2, 0.3, 0.5];
+  const hasBowlingProfile = (playerData.bowlingType || "none") !== "none" && (playerData.bowlingHand || "none") !== "none";
+  const noBowlingProfile = !hasBowlingProfile;
+  const weightedRuns = weightedAverage(playerData.batting.runs, recentWeights);
+  const weightedAvg = weightedAverage(playerData.batting.avg, recentWeights);
+  const weightedSr = weightedAverage(playerData.batting.sr, recentWeights);
+  const weightedWkts = weightedAverage(playerData.bowling.wkts, recentWeights);
+  const weightedEco = weightedAverage(playerData.bowling.eco, recentWeights, true);
+  const battingSample = playerData.batting.runs.reduce((sum, value) => sum + value, 0);
+  const bowlingSample = playerData.bowling.wkts.reduce((sum, value) => sum + value, 0);
+  const intent = playerData.makePlayerTargets?.intent ?? calculateIntent(playerData, weightedSr, weightedRuns);
+  const composure = playerData.makePlayerTargets?.composure ?? calculateComposure(playerData, weightedAvg, battingSample, weightedWkts);
+  const battingEliteBonus = Math.max(0, ((intent + composure) / 2) - 58) ** 1.4 * 0.35;
+
+  const battingRating = clamp(
+    getLogScaledContribution(intent, 25, 99, 51.48, 12) +
+    getLogScaledContribution(composure, 25, 99, 39.6, 12) +
+    battingEliteBonus,
+    24,
+    99
+  );
+
+  const econBase = bowlingSample > 0
+    ? clamp((9.8 - weightedEco) * 7.5, 0, 42)
+    : 0;
+  const wktsBase = bowlingSample > 0
+    ? clamp(weightedWkts * 2.2, 0, 42)
+    : 0;
+  const econ = playerData.makePlayerTargets?.econ ?? (bowlingSample > 0
+    ? clamp(25 + Math.max(0, 10.5 - weightedEco) * 22, 25, 99)
+    : 25);
+  const wkts = playerData.makePlayerTargets?.wkts ?? (bowlingSample > 0
+    ? clamp(25 + wktsBase * 1.55, 25, 99)
+    : 25);
+  const normalizedEcon = noBowlingProfile ? 25 : econ;
+  const normalizedWkts = noBowlingProfile ? 25 : wkts;
+  const bowlingRating = noBowlingProfile
+    ? 25
+    : bowlingSample > 0 || playerData.makePlayerTargets?.econ || playerData.makePlayerTargets?.wkts
+    ? calculateBowlingRatingFromSkills(normalizedEcon, normalizedWkts)
+    : 25;
+  const bowlingOverallValue = noBowlingProfile ? 25 : clamp(22 + econBase + wktsBase, 22, 99);
+  const allRoundValue = clamp((battingRating + bowlingOverallValue) / 2, 38, 99);
+  const allRoundBonus = Math.max(0, allRoundValue - 55) * 0.12;
+  const fielding = clamp(playerData.fielding ?? playerData.makePlayerTargets?.fielding ?? 78, 70, 99);
+  const leadership = clamp(playerData.leadership ?? playerData.makePlayerTargets?.leadership ?? 72, 70, 99);
+  const intangiblesBonus = (fielding + leadership) / 20;
+  const clutch = clamp(
+    (battingRating + bowlingOverallValue) / 2 +
+    composure * 0.16 +
+    intent * 0.08,
+    55,
+    99
+  );
+  const allRounder = battingRating > 60 && bowlingRating > 35;
+  const battingAllRounder = allRounder && battingRating >= bowlingRating;
+  const bowlingAllRounder = allRounder && bowlingRating > battingRating;
+
+  const baseOverall = clamp(
+    battingRating < 60
+      ? bowlingRating * 0.9
+      : battingAllRounder
+      ? battingRating * 0.7 + bowlingOverallValue * 0.3 + allRoundBonus
+      : bowlingAllRounder
+      ? battingRating * 0.3 + bowlingOverallValue * 0.7 + allRoundBonus
+      : bowlingRating < 35
+      ? battingRating * 0.9
+      : battingRating * 0.5 + bowlingOverallValue * 0.5,
+    25,
+    99
+  );
+  const overall = clamp(baseOverall + intangiblesBonus, 25, 99);
+
+  return {
+    batting: Math.round(battingRating),
+    bowling: Math.round(bowlingRating),
+    allRound: Math.round(allRoundValue),
+    clutch: Math.round(clutch),
+    intent: Math.round(intent),
+    composure: Math.round(composure),
+    econ: Math.round(normalizedEcon),
+    wkts: Math.round(normalizedWkts),
+    fielding: Math.round(fielding),
+    leadership: Math.round(leadership),
+    intangiblesBonus: Number(intangiblesBonus.toFixed(1)),
+    overall: Math.round(overall)
+  };
+}
+
+function calculateTeamRatings(players) {
+  const ordered = [...players]
+    .filter((playerData) => playerData?.ratings)
+    .sort((a, b) => b.ratings.overall - a.ratings.overall)
+    .slice(0, 11);
+  if (!ordered.length) {
+    return { batting: 0, bowling: 0, overall: 0 };
+  }
+  return {
+    batting: Math.round(average(ordered.map((p) => p.ratings.batting))),
+    bowling: Math.round(average(ordered.map((p) => p.ratings.bowling))),
+    overall: Math.round(average(ordered.map((p) => p.ratings.overall)))
+  };
+}
+
+function initControls() {
+  const franchiseSelect = document.getElementById("franchise-team-select");
+  const opponentSelect = document.getElementById("opponent-team-select");
+  const homeSelect = franchiseSelect;
+  const awaySelect = opponentSelect || {
+    add() {},
+    addEventListener() {},
+    value: ""
+  };
+  const ratingsTeamFilter = document.getElementById("ratings-team-filter");
+  const ratingsSort = document.getElementById("ratings-sort");
+  const seasonStatSelect = document.getElementById("season-stat-select");
+  const customLeagueOpponent = document.getElementById("league-opponent-select");
+
+  if (ratingsTeamFilter) {
+    ratingsTeamFilter.add(new Option("All Teams", "ALL"));
+    teams.forEach((team) => {
+      ratingsTeamFilter.add(new Option(`${team.code} • ${team.name}`, team.code));
+    });
+    ratingsTeamFilter.value = state.ratingsFilter;
+    ratingsTeamFilter.addEventListener("change", (event) => {
+      state.ratingsFilter = event.target.value;
+      renderRatingsPage();
+    });
+  }
+
+  if (ratingsSort) {
+    ratingsSort.value = state.ratingsSort;
+    ratingsSort.addEventListener("change", (event) => {
+      state.ratingsSort = event.target.value;
+      renderRatingsPage();
+    });
+  }
+
+  if (seasonStatSelect) {
+    seasonStatSelect.value = state.seasonStat;
+    seasonStatSelect.addEventListener("change", (event) => {
+      state.seasonStat = event.target.value;
+      renderAwards();
+    });
+  }
+
+  if (customLeagueOpponent) {
+    teams.forEach((team) => {
+      customLeagueOpponent.add(new Option(`${team.code} • ${team.name}`, team.code));
+    });
+    customLeagueOpponent.value = state.customLeagueOpponent;
+    customLeagueOpponent.addEventListener("change", (event) => {
+      state.customLeagueOpponent = event.target.value;
+      renderCustomPage();
+    });
+    const simulateCustom = document.getElementById("simulate-custom-match");
+    if (simulateCustom) {
+      simulateCustom.addEventListener("click", () => simulateCustomMatch());
+    }
+  }
+
+  if (!franchiseSelect) {
+    return;
+  }
+
+  teams.forEach((team) => {
+    homeSelect.add(new Option(`${team.code} • ${team.name}`, team.code));
+    awaySelect.add(new Option(`${team.code} • ${team.name}`, team.code));
+  });
+
+  homeSelect.value = state.homeTeam;
+  awaySelect.value = state.awayTeam;
+
+  homeSelect.addEventListener("change", (event) => {
+    state.homeTeam = event.target.value;
+    state.franchiseTeam = state.homeTeam;
+    state.selectedTeam = state.homeTeam;
+    syncFeaturedMatchToSeason();
+    renderFeaturedMatchup();
+    renderTeamCards();
+    renderRoster();
+  });
+
+  awaySelect.addEventListener("change", (event) => {
+    state.awayTeam = event.target.value;
+    state.opponentTeam = state.awayTeam;
+    if (state.homeTeam === state.awayTeam) {
+      state.homeTeam = nextTeamCode(state.awayTeam);
+      state.franchiseTeam = state.homeTeam;
+      state.selectedTeam = state.homeTeam;
+      homeSelect.value = state.homeTeam;
+    }
+    renderFeaturedMatchup();
+    renderTeamCards();
+    renderRoster();
+  });
+
+  document.getElementById("simulate-next").addEventListener("click", () => {
+    if (state.season.champion) {
+      restartSeason();
+      return;
+    }
+    if (!validateImpactSubsBeforeSimulation()) {
+      renderFeaturedResultMessage("Select exactly two impact players from the active XII before simulating.");
+      return;
+    }
+    const result = simulateFranchiseGame();
+    if (!result) {
+      renderFeaturedMatchup();
+      renderFeaturedResultMessage(state.season.champion
+        ? `${state.season.champion.name} finished the year as champions.`
+        : "No regular-season fixture remains for this team. Use Simulate Season to finish the playoffs.");
+      renderTicker();
+      return;
+    }
+    renderFeaturedResult(result);
+    renderMatchLog();
+    renderLatestScorecard();
+    renderStandings();
+    renderAwards();
+    renderFeaturedMatchup();
+    renderTicker();
+    maybeLaunchGameOutcomeSymbols(result);
+    const launchedTournamentMvpEmojis = maybeLaunchTournamentMvpEmojis();
+    if (!launchedTournamentMvpEmojis) {
+      maybeLaunchChampionshipConfetti();
+    }
+    maybeLaunchSeasonLossEmojis();
+  });
+
+  document.getElementById("simulate-season").addEventListener("click", () => {
+    if (state.season.champion) {
+      restartSeason();
+      return;
+    }
+    if (!validateImpactSubsBeforeSimulation()) {
+      renderFeaturedResultMessage("Select exactly two impact players from the active XII before simulating the season.");
+      return;
+    }
+    state.season = simulateSeason();
+    state.matchLog = [...state.season.featuredMatches];
+    renderStandings();
+    renderAwards();
+    renderMatchLog();
+    renderLatestScorecard();
+    renderFeaturedMatchup();
+    renderTicker();
+    const final = state.season.featuredMatches[0];
+    if (final) {
+      renderFeaturedResult(
+        final,
+        `Champions: ${state.season.champion ? state.season.champion.name : "Decided on tie-break"}.`,
+        true
+      );
+      maybeLaunchGameOutcomeSymbols(final);
+      const launchedTournamentMvpEmojis = maybeLaunchTournamentMvpEmojis();
+      if (!launchedTournamentMvpEmojis) {
+        maybeLaunchChampionshipConfetti();
+      }
+    }
+    maybeLaunchSeasonLossEmojis();
+    updateSimulationControls();
+  });
+}
+
+function renderAll() {
+  initContactOverlay();
+
+  if (document.getElementById("franchise-team-select")) {
+    initSimulatorHowToPlayOverlay();
+    renderFeaturedMatchup();
+    renderTeamCards();
+    renderRoster();
+    renderMatchLog();
+    renderStandings();
+    renderAwards();
+    renderLatestScorecard();
+    renderTicker();
+    updateSimulationControls();
+  }
+
+  if (document.getElementById("ratings-grid")) {
+    renderRatingsPage();
+  }
+
+  if (document.getElementById("custom-team-a")) {
+    initCustomHowToPlayOverlay();
+    renderCustomPage();
+  }
+
+  if (document.getElementById("make-player-name")) {
+    initMakePlayerHowToPlayOverlay();
+    initMakePlayerPage();
+  }
+
+}
+
+function renderFeaturedMatchup() {
+  syncFeaturedMatchToSeason();
+  const seasonChip = document.getElementById("season-chip");
+  const nextFixture = getNextFixtureForTeam(state.franchiseTeam);
+
+  if (!nextFixture) {
+    const playoffFixture = getFranchisePlayoffFixture();
+    if (playoffFixture) {
+      const home = buildLineupTeam(findTeam(playoffFixture.homeCode));
+      const away = buildLineupTeam(findTeam(playoffFixture.awayCode));
+      document.getElementById("featured-home-code").textContent = home.code;
+      document.getElementById("featured-home-name").textContent = home.name;
+      document.getElementById("featured-away-code").textContent = away.code;
+      document.getElementById("featured-away-name").textContent = away.name;
+      document.getElementById("featured-home-ovr").textContent = home.teamRatings.overall;
+      document.getElementById("featured-away-ovr").textContent = away.teamRatings.overall;
+      document.getElementById("featured-venue").textContent = "Playoff spotlight";
+      if (seasonChip) {
+        seasonChip.textContent = playoffFixture.label;
+      }
+      return;
+    }
+
+    const franchise = buildLineupTeam(findTeam(state.franchiseTeam));
+    document.getElementById("featured-home-code").textContent = franchise.code;
+    document.getElementById("featured-home-name").textContent = franchise.name;
+    document.getElementById("featured-away-code").textContent = "--";
+    document.getElementById("featured-away-name").textContent = state.season.champion ? "Season Complete" : isFranchisePlayoffEligible() ? "Awaiting Playoff Result" : "Awaiting Playoffs";
+    document.getElementById("featured-home-ovr").textContent = franchise.teamRatings.overall;
+    document.getElementById("featured-away-ovr").textContent = "--";
+    document.getElementById("featured-venue").textContent = state.season.champion ? "Trophy Lift" : isFranchisePlayoffEligible() ? "Bracket in progress" : "Regular season finished";
+    if (seasonChip) {
+      seasonChip.textContent = state.season.champion
+        ? `${state.season.champion.code} won the title`
+        : isFranchisePlayoffEligible() ? "Playoffs" : "Regular Season Complete";
+    }
+    return;
+  }
+
+  const home = buildLineupTeam(findTeam(nextFixture.homeCode));
+  const away = buildLineupTeam(findTeam(nextFixture.awayCode));
+
+  document.getElementById("featured-home-code").textContent = home.code;
+  document.getElementById("featured-home-name").textContent = home.name;
+  document.getElementById("featured-away-code").textContent = away.code;
+  document.getElementById("featured-away-name").textContent = away.name;
+  document.getElementById("featured-home-ovr").textContent = home.teamRatings.overall;
+  document.getElementById("featured-away-ovr").textContent = away.teamRatings.overall;
+  document.getElementById("featured-venue").textContent = home.venue;
+  if (seasonChip) {
+    seasonChip.textContent = formatSeasonChipLabel(nextFixture.label);
+  }
+}
+
+function initHowToPlayOverlay(steps) {
+  const trigger = document.getElementById("how-to-play-trigger");
+  const overlay = document.getElementById("how-to-play-overlay");
+  const backdrop = document.getElementById("how-to-play-backdrop");
+  const panel = document.getElementById("how-to-play-panel");
+  const closeButton = document.getElementById("how-to-play-close");
+  const prevButton = document.getElementById("how-to-play-prev");
+  const nextButton = document.getElementById("how-to-play-next");
+  const label = document.getElementById("how-to-play-label");
+  const title = document.getElementById("how-to-play-title");
+  const content = document.getElementById("how-to-play-content");
+  const dots = document.getElementById("how-to-play-dots");
+  if (!trigger || !overlay || !backdrop || !panel || !closeButton || !prevButton || !nextButton || !label || !title || !content || !dots) {
+    return;
+  }
+
+  if (trigger.dataset.bound === "true") {
+    return;
+  }
+
+  let activeStep = 0;
+  let previousScrollY = 0;
+
+  function renderHowToPlayStep() {
+    const step = steps[activeStep];
+    label.textContent = step.label;
+    title.textContent = step.title;
+    content.innerHTML = step.content;
+    dots.innerHTML = steps.map((_, index) => `<span class="how-to-play-dot ${index === activeStep ? "is-active" : ""}"></span>`).join("");
+    prevButton.disabled = false;
+    nextButton.disabled = false;
+  }
+
+  function scrollToHowToPlayStep() {
+    const step = steps[activeStep];
+    if (!step.target) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    const target = document.querySelector(step.target);
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: step.block || "center" });
+    }
+  }
+
+  function setHowToPlayStep(nextIndex) {
+    activeStep = (nextIndex + steps.length) % steps.length;
+    renderHowToPlayStep();
+    scrollToHowToPlayStep();
+  }
+
+  function openHowToPlay() {
+    previousScrollY = window.scrollY;
+    overlay.hidden = false;
+    document.body.classList.add("how-to-play-open");
+    setHowToPlayStep(0);
+  }
+
+  function closeHowToPlay() {
+    overlay.hidden = true;
+    document.body.classList.remove("how-to-play-open");
+    window.scrollTo({ top: previousScrollY, behavior: "auto" });
+  }
+
+  trigger.addEventListener("click", openHowToPlay);
+  closeButton.addEventListener("click", closeHowToPlay);
+  prevButton.addEventListener("click", () => setHowToPlayStep(activeStep - 1));
+  nextButton.addEventListener("click", () => setHowToPlayStep(activeStep + 1));
+  backdrop.addEventListener("click", closeHowToPlay);
+  document.addEventListener("keydown", (event) => {
+    if (overlay.hidden) {
+      return;
+    }
+    if (event.key === "Escape") {
+      closeHowToPlay();
+    } else if (event.key === "ArrowLeft") {
+      setHowToPlayStep(activeStep - 1);
+    } else if (event.key === "ArrowRight") {
+      setHowToPlayStep(activeStep + 1);
+    }
+  });
+
+  trigger.dataset.bound = "true";
+}
+
+function initContactOverlay() {
+  const trigger = document.getElementById("contact-trigger");
+  const overlay = document.getElementById("contact-overlay");
+  const backdrop = document.getElementById("contact-backdrop");
+  const closeButton = document.getElementById("contact-close");
+  if (!trigger || !overlay || !backdrop || !closeButton) {
+    return;
+  }
+
+  if (trigger.dataset.bound === "true") {
+    return;
+  }
+
+  function openContact() {
+    overlay.hidden = false;
+    document.body.classList.add("how-to-play-open");
+  }
+
+  function closeContact() {
+    overlay.hidden = true;
+    document.body.classList.remove("how-to-play-open");
+  }
+
+  trigger.addEventListener("click", openContact);
+  closeButton.addEventListener("click", closeContact);
+  backdrop.addEventListener("click", closeContact);
+  document.addEventListener("keydown", (event) => {
+    if (overlay.hidden) {
+      return;
+    }
+    if (event.key === "Escape") {
+      closeContact();
+    }
+  });
+
+  trigger.dataset.bound = "true";
+}
+
+function initSimulatorHowToPlayOverlay() {
+  initHowToPlayOverlay([
+    {
+      label: "HOW TO PLAY",
+      title: "Simulating Games",
+      content: `
+        <div class="how-to-play-sections">
+          <article class="how-to-play-item">
+            <p class="how-to-play-item-label">Simulate Game</p>
+            <h3>Play the next scheduled match</h3>
+            <p>Run your franchise's next fixture, update the standings, and move the season forward one result at a time.</p>
+          </article>
+          <article class="how-to-play-item">
+            <p class="how-to-play-item-label">Simulate Season</p>
+            <h3>Fast-forward the campaign</h3>
+            <p>Resolve the remaining regular season and playoffs in one pass using your current lineup and impact-player choices.</p>
+          </article>
+          <article class="how-to-play-item">
+            <p class="how-to-play-item-label">Matchup</p>
+            <h3>Use the match card as your preview</h3>
+            <p>Check the next opponent, team overalls, venue context, and week before you simulate, then use the same card to review match results once a game has been played.</p>
+          </article>
+        </div>
+      `,
+      target: null
+    },
+    {
+      label: "HOW TO PLAY",
+      title: "Pick the franchise you want to run",
+      content: `
+        <article class="how-to-play-item how-to-play-item-single">
+          <p class="how-to-play-item-label">Team Hub</p>
+          <h3>Choose Your Team</h3>
+          <p>Use the Team Hub to switch franchises and compare each side's XI strength, batting, and bowling before you commit to a season path.</p>
+        </article>
+      `,
+      target: "#team-hub-section"
+    },
+    {
+      label: "HOW TO PLAY",
+      title: "Tune your active XII before simming",
+      content: `
+        <div class="how-to-play-sections how-to-play-sections-double">
+          <article class="how-to-play-item">
+            <p class="how-to-play-item-label">Lineup Builder</p>
+            <h3>Set the order of your active group</h3>
+            <p>Use the Lineup Builder to shape your active XII, reorder the cards, and decide how you want your franchise set up before the next sim.</p>
+          </article>
+          <article class="how-to-play-item">
+            <p class="how-to-play-item-label">Impact Subs</p>
+            <h3>Choose flexible matchup options</h3>
+            <p>Pick the impact-player options from the active group so the simulator can balance batting and bowling changes during a match.</p>
+          </article>
+        </div>
+      `,
+      target: "#lineup-builder-section"
+    },
+    {
+      label: "HOW TO PLAY",
+      title: "Track the race across the league",
+      content: `
+        <div class="how-to-play-sections how-to-play-sections-double">
+          <article class="how-to-play-item">
+            <p class="how-to-play-item-label">League Leaders</p>
+            <h3>Watch awards and season races</h3>
+            <p>Follow the major award battles and season leaders here as the table and individual races change over the course of your sim.</p>
+          </article>
+          <article class="how-to-play-item">
+            <p class="how-to-play-item-label">Top 5 Tracker</p>
+            <h3>Check in with the top 5 across the league</h3>
+            <p>Use the stat selector to check who is leading each category and keep tabs on the current top 5 in runs, wickets, averages, economy, impact, and other leaderboard races.</p>
+          </article>
+        </div>
+      `,
+      target: "#awards-watch-section"
+    }
+  ]);
+}
+
+function initCustomHowToPlayOverlay() {
+  initHowToPlayOverlay([
+    {
+      label: "HOW TO PLAY",
+      title: "Set up the opponent first",
+      content: `
+        <article class="how-to-play-item how-to-play-item-single">
+          <p class="how-to-play-item-label">Opponent Setup</p>
+          <h3>Choose the league team you want to face</h3>
+          <p>Pick the opponent from the setup card first so the rest of the page can build the correct league XI for your custom matchup.</p>
+        </article>
+      `,
+      target: null
+    },
+    {
+      label: "HOW TO PLAY",
+      title: "Build both sides of the matchup view",
+      content: `
+        <div class="how-to-play-sections how-to-play-sections-double">
+          <article class="how-to-play-item">
+            <p class="how-to-play-item-label">Your Team</p>
+            <h3>Make your own team on the left</h3>
+            <p>Use the Custom XI A section to build your own side player by player and shape the exact eleven you want to test.</p>
+          </article>
+          <article class="how-to-play-item">
+            <p class="how-to-play-item-label">Opposing Team</p>
+            <h3>See the picked league side on the right</h3>
+            <p>The opponent you selected is shown on the right so you can compare your custom team against their current league XI.</p>
+          </article>
+        </div>
+      `,
+      target: "#custom-team-a"
+    },
+    {
+      label: "HOW TO PLAY",
+      title: "Check the simulation result at the bottom",
+      content: `
+        <article class="how-to-play-item how-to-play-item-single">
+          <p class="how-to-play-item-label">Simulation Result</p>
+          <h3>Check the scorecard in the bottom panel</h3>
+          <p>After the sim runs, the full result appears in the bottom scorecard area with the complete match breakdown.</p>
+        </article>
+      `,
+      target: "#custom-scorecard-section"
+    },
+    {
+      label: "HOW TO PLAY",
+      title: "Run the custom match",
+      content: `
+        <article class="how-to-play-item how-to-play-item-single">
+          <p class="how-to-play-item-label">Simulate Match</p>
+          <h3>Play the fixture once both teams are ready</h3>
+          <p>Use Simulate Custom Match to run the game, then jump straight to the result and scorecard to review what happened.</p>
+        </article>
+      `,
+      target: null
+    }
+  ]);
+}
+
+function initMakePlayerHowToPlayOverlay() {
+  initHowToPlayOverlay([
+    {
+      label: "HOW TO PLAY",
+      title: "Set up the player with the inputs",
+      content: `
+        <article class="how-to-play-item how-to-play-item-single">
+          <p class="how-to-play-item-label">Inputs</p>
+          <h3>Shape the player from the setup controls</h3>
+          <p>Use the input fields and sliders to define the player's name, role traits, team, and attributes before you save them.</p>
+        </article>
+      `,
+      target: ".make-player-grid"
+    },
+    {
+      label: "HOW TO PLAY",
+      title: "Manage the saved custom players",
+      content: `
+        <div class="how-to-play-sections how-to-play-sections-double">
+          <article class="how-to-play-item">
+            <p class="how-to-play-item-label">Custom Players</p>
+            <h3>See where saved players are stored on the page</h3>
+            <p>Your created players show up in the Custom Players section, and you can delete them from that list at any time.</p>
+          </article>
+          <article class="how-to-play-item">
+            <p class="how-to-play-item-label">Browser Storage</p>
+            <h3>They live in this browser's local storage</h3>
+            <p>These custom players are stored in the browser's local storage, so they stay available here until you remove them.</p>
+          </article>
+        </div>
+      `,
+      target: "#make-player-custom-list"
+    },
+    {
+      label: "HOW TO PLAY",
+      title: "Preview the card and add the player to a team",
+      content: `
+        <article class="how-to-play-item how-to-play-item-single">
+          <p class="how-to-play-item-label">Preview</p>
+          <h3>Review the player card and add them to the league</h3>
+          <p>Use the preview card at the top to see the generated player card, then hit Add To Team when you're ready to place them into the selected side.</p>
+        </article>
+      `,
+      target: null
+    }
+  ]);
+}
+
+function formatSeasonChipLabel(baseLabel) {
+  if (!state.season?.table?.length) {
+    return baseLabel;
+  }
+
+  const franchiseRow = state.season.table.find((row) => row.team.code === state.franchiseTeam);
+  const completedWeeks = state.season.currentRound || 0;
+  if (!franchiseRow || completedWeeks <= 0) {
+    return baseLabel;
+  }
+
+  const ties = Math.max(0, franchiseRow.points - franchiseRow.wins * 2);
+  const record = ties > 0
+    ? `${franchiseRow.wins}-${franchiseRow.losses}-${ties}`
+    : `${franchiseRow.wins}-${franchiseRow.losses}`;
+
+  return `${baseLabel} | After WEEK ${completedWeeks}: ${record}`;
+}
+
+function updateSimulationControls() {
+  const nextButton = document.getElementById("simulate-next");
+  const seasonButton = document.getElementById("simulate-season");
+  if (!nextButton || !seasonButton) {
+    return;
+  }
+
+  if (state.season.champion) {
+    nextButton.textContent = "Restart Season";
+    nextButton.className = "primary-btn";
+    seasonButton.hidden = true;
+    seasonButton.style.display = "none";
+    return;
+  }
+
+  nextButton.textContent = "Simulate Game";
+  seasonButton.hidden = false;
+  seasonButton.style.display = "";
+}
+
+function renderTeamCards() {
+  const container = document.getElementById("team-cards");
+  const nextFixture = getNextFixtureForTeam(state.franchiseTeam);
+  const opponentCode = nextFixture
+    ? (nextFixture.homeCode === state.franchiseTeam ? nextFixture.awayCode : nextFixture.homeCode)
+    : null;
+  container.innerHTML = teams.map((team) => {
+    const selectedClass = team.code === state.franchiseTeam ? "selected" : "";
+    const opponentClass = team.code === opponentCode ? "opponent" : "";
+    const lineupTeam = buildLineupTeam(team);
+    return `
+      <button class="team-card ${selectedClass} ${opponentClass}" data-team="${team.code}" style="background:
+        linear-gradient(135deg, ${hexToRgba(team.colors[0], 0.18)}, rgba(255,255,255,0.03)),
+        linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));">
+        <div class="team-card-top">
+          <div>
+            <p class="eyebrow">${team.code}</p>
+            <h3>${team.name}</h3>
+          </div>
+          <span class="rating-badge">${lineupTeam.teamRatings.overall}</span>
+        </div>
+        <p class="team-subtitle">${team.identity} built around ${team.venue.toLowerCase()}.</p>
+        <div class="team-metrics">
+          <div class="metric"><strong>${lineupTeam.teamRatings.batting}</strong><span>Bat</span></div>
+          <div class="metric"><strong>${lineupTeam.teamRatings.bowling}</strong><span>Bowl</span></div>
+          <div class="metric"><strong>${lineupTeam.teamRatings.overall}</strong><span>XI OVR</span></div>
+        </div>
+      </button>
+    `;
+  }).join("");
+
+  container.querySelectorAll(".team-card").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.selectedTeam = button.dataset.team;
+      state.franchiseTeam = state.selectedTeam;
+      state.homeTeam = state.selectedTeam;
+      syncFeaturedMatchToSeason();
+      const franchiseSelect = document.getElementById("franchise-team-select");
+      const opponentSelect = document.getElementById("opponent-team-select");
+      if (franchiseSelect) franchiseSelect.value = state.homeTeam;
+      if (opponentSelect) opponentSelect.value = state.awayTeam;
+      renderFeaturedMatchup();
+      renderTeamCards();
+      renderRoster();
+    });
+  });
+}
+
+function getLineupCardPlayerKey(teamCode, playerData) {
+  return `${teamCode}:${playerData.customId || playerData.name}`;
+}
+
+function isLineupCardFlipped(teamCode, playerData) {
+  return Boolean(state.lineupCardFlips[getLineupCardPlayerKey(teamCode, playerData)]);
+}
+
+function toggleLineupCardFlip(teamCode, playerData) {
+  const key = getLineupCardPlayerKey(teamCode, playerData);
+  if (state.lineupCardFlips[key]) {
+    delete state.lineupCardFlips[key];
+    return;
+  }
+  state.lineupCardFlips[key] = true;
+}
+
+function getSeasonSnapshotForPlayer(teamCode, playerData) {
+  const seasonStats = state.season?.playerStats?.find((entry) => (
+    entry.teamCode === teamCode &&
+    ((playerData.customId && entry.customId === playerData.customId) || entry.name === playerData.name)
+  ));
+  return seasonStats || createSeasonPlayerSnapshot(playerData, teamCode);
+}
+
+function buildLineupBackStats(playerData, teamCode) {
+  const seasonStats = getSeasonSnapshotForPlayer(teamCode, playerData);
+  const matches = seasonStats.matchesPlayed || 0;
+  const highestScore = seasonStats.highestScore > 0
+    ? `${seasonStats.highestScore}${seasonStats.highestScoreNotOut ? "*" : ""}`
+    : "--";
+  const battingAverage = seasonStats.seasonDismissals > 0
+    ? seasonStats.seasonBattingAverage.toFixed(2)
+    : (seasonStats.seasonRuns > 0 ? "NO" : "--");
+  const strikeRate = seasonStats.seasonBallsFaced > 0
+    ? seasonStats.seasonStrikeRate.toFixed(1)
+    : "--";
+  const bowlingAverage = seasonStats.seasonWickets > 0
+    ? seasonStats.seasonBowlingAverage.toFixed(2)
+    : "--";
+  const economy = seasonStats.seasonOversBalls > 0
+    ? seasonStats.seasonEconomy.toFixed(2)
+    : "--";
+  const bestBowling = seasonStats.bestBowlingWickets > 0
+    ? `${seasonStats.bestBowlingWickets}/${seasonStats.bestBowlingRuns}`
+    : "--";
+  const overs = seasonStats.seasonOversBalls > 0
+    ? formatOversFromBalls(seasonStats.seasonOversBalls)
+    : "--";
+
+  return {
+    summary: `${matches} match${matches === 1 ? "" : "es"} played`,
+    batting: [
+      { label: "Runs", value: `${seasonStats.seasonRuns}` },
+      { label: "HS", value: highestScore },
+      { label: "Avg", value: battingAverage },
+      { label: "SR", value: strikeRate }
+    ],
+    bowling: [
+      { label: "Wkts", value: `${Math.round(seasonStats.seasonWickets)}` },
+      { label: "BBF", value: bestBowling },
+      { label: "Econ", value: economy },
+      { label: "Bowl Avg", value: bowlingAverage }
+    ]
+  };
+}
+
+function renderRoster() {
+  return renderRosterWithStatsCard();
+  const team = findTeam(state.franchiseTeam);
+  const lineupTeam = buildLineupTeam(team);
+  document.getElementById("roster-title").textContent = `${team.name} XI`;
+  document.getElementById("roster-team-style").textContent = team.identity;
+  document.getElementById("roster-team-ovr").textContent = `XI OVR ${lineupTeam.teamRatings.overall}`;
+  renderImpactSubWarning(team.code);
+
+  const roster = getLineupForTeam(team.code)
+    .map((name) => team.players.find((playerData) => playerData.name === name))
+    .filter(Boolean)
+    .map((playerData, index) => ({ ...playerData, lineupIndex: index, inStartingXi: index < 12 }));
+  document.getElementById("player-grid").innerHTML = roster.map((playerData) => `
+    <article class="player-card lineup-card ${playerData.inStartingXi ? "is-starting-xi" : "is-bench"} ${state.selectedLineupSwap?.teamCode === team.code && state.selectedLineupSwap?.index === playerData.lineupIndex ? "is-selected" : ""}" draggable="true" data-lineup-card="${playerData.lineupIndex}">
+      <div class="player-header">
+        <div>
+          <h3>${playerData.name}</h3>
+          <p class="player-meta">${playerData.role} • ${playerData.battingStyle}</p>
+        </div>
+        <span class="rating-badge">${playerData.ratings.overall}</span>
+      </div>
+      <div class="lineup-card-controls">
+        <button class="ghost-btn impact-sub-btn ${isImpactSubSelected(team.code, playerData.lineupIndex) ? "is-active" : ""}" type="button" data-impact-sub data-lineup-index="${playerData.lineupIndex}">${isImpactSubSelected(team.code, playerData.lineupIndex) ? "Impact Player" : "Make Impact Player"}</button>
+      </div>
+      <div class="player-ratings">
+        <span>Bat<strong>${playerData.ratings.batting}</strong></span>
+        <span>Bowl<strong>${playerData.ratings.bowling}</strong></span>
+        <span>AR<strong>${playerData.ratings.allRound}</strong></span>
+        <span>Cltch<strong>${playerData.ratings.clutch}</strong></span>
+        <span>Fld<strong>${playerData.ratings.fielding}</strong></span>
+        <span>Lead<strong>${playerData.ratings.leadership}</strong></span>
+        <span>Intent<strong>${playerData.ratings.intent}</strong></span>
+        <span>Comp<strong>${playerData.ratings.composure}</strong></span>
+        <span>Econ<strong>${playerData.ratings.econ}</strong></span>
+        <span>WktTk<strong>${playerData.ratings.wkts}</strong></span>
+      </div>
+      <p class="player-season-line">Style ${playerData.battingStyle} | Role ${playerData.role}</p>
+      <p class="player-season-line">${playerData.inStartingXi ? "Inside the active playing XII for the next game." : "Currently outside the XII. Move this card above slot 13 to activate it."}</p>
+    </article>
+  `).join("");
+  document.querySelectorAll("[data-impact-sub]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleImpactSub(team.code, Number(button.dataset.lineupIndex));
+    });
+  });
+  document.querySelectorAll("[data-lineup-card]").forEach((card) => {
+    card.addEventListener("click", (event) => {
+      if (event.target.closest("[data-impact-sub]")) {
+        return;
+      }
+      const clickedIndex = Number(card.dataset.lineupCard);
+      const currentSelection = state.selectedLineupSwap;
+      if (!currentSelection || currentSelection.teamCode !== team.code) {
+        state.selectedLineupSwap = { teamCode: team.code, index: clickedIndex };
+        renderRoster();
+        return;
+      }
+      if (currentSelection.index === clickedIndex) {
+        state.selectedLineupSwap = null;
+        renderRoster();
+        return;
+      }
+      state.selectedLineupSwap = null;
+      reorderLineupPlayer(team.code, currentSelection.index, clickedIndex);
+    });
+  });
+  document.querySelectorAll("[data-lineup-card]").forEach((card) => {
+    card.addEventListener("dragstart", (event) => {
+      state.draggedLineupIndex = Number(card.dataset.lineupCard);
+      state.selectedLineupSwap = null;
+      card.classList.add("is-dragging");
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", card.dataset.lineupCard);
+      }
+    });
+    card.addEventListener("dragend", () => {
+      state.draggedLineupIndex = null;
+      card.classList.remove("is-dragging");
+      document.querySelectorAll("[data-lineup-card]").forEach((node) => node.classList.remove("is-drop-target"));
+    });
+    card.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      if (state.draggedLineupIndex === null) return;
+      card.classList.add("is-drop-target");
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "move";
+      }
+    });
+    card.addEventListener("dragleave", () => {
+      card.classList.remove("is-drop-target");
+    });
+    card.addEventListener("drop", (event) => {
+      event.preventDefault();
+      const fromIndex = state.draggedLineupIndex;
+      const toIndex = Number(card.dataset.lineupCard);
+      card.classList.remove("is-drop-target");
+      if (fromIndex === null || Number.isNaN(toIndex) || fromIndex === toIndex) return;
+      reorderLineupPlayer(team.code, fromIndex, toIndex);
+    });
+  });
+}
+
+function renderRosterWithStatsCard() {
+  const team = findTeam(state.franchiseTeam);
+  const lineupTeam = buildLineupTeam(team);
+  document.getElementById("roster-title").textContent = `${team.name} XI`;
+  document.getElementById("roster-team-style").textContent = team.identity;
+  document.getElementById("roster-team-ovr").textContent = `XI OVR ${lineupTeam.teamRatings.overall}`;
+  renderImpactSubWarning(team.code);
+
+  const roster = getLineupForTeam(team.code)
+    .map((name) => team.players.find((playerData) => playerData.name === name))
+    .filter(Boolean)
+    .map((playerData, index) => ({ ...playerData, lineupIndex: index, inStartingXi: index < 12 }));
+
+  document.getElementById("player-grid").innerHTML = roster.map((playerData) => {
+    const stats = buildLineupBackStats(playerData, team.code);
+    const playerKey = getLineupCardPlayerKey(team.code, playerData);
+    const isFlipped = isLineupCardFlipped(team.code, playerData);
+
+    return `
+      <article class="player-card lineup-card ${playerData.inStartingXi ? "is-starting-xi" : "is-bench"} ${state.selectedLineupSwap?.teamCode === team.code && state.selectedLineupSwap?.index === playerData.lineupIndex ? "is-selected" : ""} ${isFlipped ? "is-flipped" : ""}" draggable="true" data-lineup-card="${playerData.lineupIndex}">
+        <div class="lineup-card-inner">
+          <section class="lineup-card-face lineup-card-front">
+            <div class="player-header">
+              <div>
+                <h3>${playerData.name}</h3>
+                <p class="player-meta">${playerData.role} &bull; ${playerData.battingStyle}</p>
+              </div>
+              <span class="rating-badge">${playerData.ratings.overall}</span>
+            </div>
+            <div class="lineup-card-controls">
+              <button class="ghost-btn impact-sub-btn ${isImpactSubSelected(team.code, playerData.lineupIndex) ? "is-active" : ""}" type="button" data-impact-sub data-lineup-index="${playerData.lineupIndex}">${isImpactSubSelected(team.code, playerData.lineupIndex) ? "Impact Player" : "Make Impact Player"}</button>
+            </div>
+            <div class="player-ratings">
+              <span>Bat<strong>${playerData.ratings.batting}</strong></span>
+              <span>Bowl<strong>${playerData.ratings.bowling}</strong></span>
+              <span>AR<strong>${playerData.ratings.allRound}</strong></span>
+              <span>Cltch<strong>${playerData.ratings.clutch}</strong></span>
+              <span>Fld<strong>${playerData.ratings.fielding}</strong></span>
+              <span>Lead<strong>${playerData.ratings.leadership}</strong></span>
+              <span>Intent<strong>${playerData.ratings.intent}</strong></span>
+              <span>Comp<strong>${playerData.ratings.composure}</strong></span>
+              <span>Econ<strong>${playerData.ratings.econ}</strong></span>
+              <span>WktTk<strong>${playerData.ratings.wkts}</strong></span>
+            </div>
+            <p class="player-season-line">Style ${playerData.battingStyle} | Role ${playerData.role}</p>
+            <button class="player-ratings-toggle lineup-card-front-toggle" type="button" data-lineup-stats-toggle data-lineup-player-key="${escapeHtml(playerKey)}" aria-label="${isFlipped ? "Show rating breakdown" : "Show player stats"}" aria-pressed="${isFlipped ? "true" : "false"}">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M5 18V11M12 18V7M19 18V13" />
+              </svg>
+            </button>
+          </section>
+          <section class="lineup-card-face lineup-card-back">
+            <div class="player-header">
+              <div>
+                <h3>${playerData.name}</h3>
+                <p class="player-meta">${playerData.role} &bull; ${playerData.battingStyle}</p>
+              </div>
+              <span class="rating-badge">${playerData.ratings.overall}</span>
+            </div>
+            <div class="lineup-card-stats-summary">${stats.summary}</div>
+            <div class="lineup-card-stats-block">
+              <p class="lineup-card-stats-label">Batting</p>
+              <div class="lineup-card-stats-grid">
+                ${stats.batting.map((item) => `
+                  <span><small>${item.label}</small><strong>${item.value}</strong></span>
+                `).join("")}
+              </div>
+            </div>
+            <div class="lineup-card-stats-block">
+              <p class="lineup-card-stats-label">Bowling</p>
+              <div class="lineup-card-stats-grid">
+                ${stats.bowling.map((item) => `
+                  <span><small>${item.label}</small><strong>${item.value}</strong></span>
+                `).join("")}
+              </div>
+            </div>
+            <button class="player-ratings-toggle lineup-card-back-toggle" type="button" data-lineup-stats-toggle data-lineup-player-key="${escapeHtml(playerKey)}" aria-label="${isFlipped ? "Show rating breakdown" : "Show player stats"}" aria-pressed="${isFlipped ? "true" : "false"}">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M5 18V11M12 18V7M19 18V13" />
+              </svg>
+            </button>
+          </section>
+        </div>
+      </article>
+    `;
+  }).join("");
+
+  document.querySelectorAll("[data-impact-sub]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleImpactSub(team.code, Number(button.dataset.lineupIndex));
+    });
+  });
+
+  document.querySelectorAll("[data-lineup-stats-toggle]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const playerKey = button.dataset.lineupPlayerKey;
+      const targetPlayer = roster.find((entry) => getLineupCardPlayerKey(team.code, entry) === playerKey);
+      if (!targetPlayer) {
+        return;
+      }
+      toggleLineupCardFlip(team.code, targetPlayer);
+      renderRosterWithStatsCard();
+    });
+  });
+
+  document.querySelectorAll("[data-lineup-card]").forEach((card) => {
+    card.addEventListener("click", (event) => {
+      if (event.target.closest("[data-impact-sub]") || event.target.closest("[data-lineup-stats-toggle]")) {
+        return;
+      }
+      const clickedIndex = Number(card.dataset.lineupCard);
+      const currentSelection = state.selectedLineupSwap;
+      if (!currentSelection || currentSelection.teamCode !== team.code) {
+        state.selectedLineupSwap = { teamCode: team.code, index: clickedIndex };
+        renderRosterWithStatsCard();
+        return;
+      }
+      if (currentSelection.index === clickedIndex) {
+        state.selectedLineupSwap = null;
+        renderRosterWithStatsCard();
+        return;
+      }
+      state.selectedLineupSwap = null;
+      reorderLineupPlayer(team.code, currentSelection.index, clickedIndex);
+    });
+  });
+
+  document.querySelectorAll("[data-lineup-card]").forEach((card) => {
+    card.addEventListener("dragstart", (event) => {
+      state.draggedLineupIndex = Number(card.dataset.lineupCard);
+      state.selectedLineupSwap = null;
+      card.classList.add("is-dragging");
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", card.dataset.lineupCard);
+      }
+    });
+    card.addEventListener("dragend", () => {
+      state.draggedLineupIndex = null;
+      card.classList.remove("is-dragging");
+      document.querySelectorAll("[data-lineup-card]").forEach((node) => node.classList.remove("is-drop-target"));
+    });
+    card.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      if (state.draggedLineupIndex === null) return;
+      card.classList.add("is-drop-target");
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "move";
+      }
+    });
+    card.addEventListener("dragleave", () => {
+      card.classList.remove("is-drop-target");
+    });
+    card.addEventListener("drop", (event) => {
+      event.preventDefault();
+      const fromIndex = state.draggedLineupIndex;
+      const toIndex = Number(card.dataset.lineupCard);
+      card.classList.remove("is-drop-target");
+      if (fromIndex === null || Number.isNaN(toIndex) || fromIndex === toIndex) return;
+      reorderLineupPlayer(team.code, fromIndex, toIndex);
+    });
+  });
+}
+
+function renderLineupEditor(team) {
+  const container = document.getElementById("lineup-editor");
+  if (!container) return;
+  const lineup = getLineupForTeam(team.code);
+  const options = team.players.map((playerData) =>
+    `<option value="${escapeHtml(playerData.name)}">${escapeHtml(playerData.name)} • ${playerData.ratings.overall}</option>`
+  ).join("");
+
+  container.innerHTML = `
+    <div class="scorecard-block">
+      <p class="player-season-line">Choose the active XII and batting order for ${team.name}. Slots 1 and 12 default to the impact-player pool for single-game sims.</p>
+    </div>
+    <div class="lineup-grid">
+      ${lineup.map((playerName, index) => `
+        <label class="lineup-slot">
+          <span>Batting Slot ${index + 1}</span>
+          <select data-lineup-slot="${index}">
+            ${options.replace(`value="${escapeHtml(playerName)}"`, `value="${escapeHtml(playerName)}" selected`)}
+          </select>
+        </label>
+      `).join("")}
+    </div>
+  `;
+
+  container.querySelectorAll("[data-lineup-slot]").forEach((select) => {
+    select.addEventListener("change", (event) => {
+      updateLineupSlot(team.code, Number(event.target.dataset.lineupSlot), event.target.value);
+    });
+  });
+}
+
+function getLineupForTeam(teamCode) {
+  const team = findTeam(teamCode);
+  const fallback = team.players.map((playerData) => playerData.name);
+  const existing = state.teamLineups?.[teamCode];
+  if (!existing?.length) {
+    state.teamLineups[teamCode] = fallback;
+    return fallback;
+  }
+
+  const validNames = team.players.map((playerData) => playerData.name);
+  const filtered = existing.filter((name) => validNames.includes(name));
+  validNames.forEach((name) => {
+    if (!filtered.includes(name)) {
+      filtered.push(name);
+    }
+  });
+  state.teamLineups[teamCode] = filtered;
+  return state.teamLineups[teamCode];
+}
+
+function isPlayerInStartingXi(teamCode, playerName) {
+  return getLineupForTeam(teamCode).slice(0, 12).includes(playerName);
+}
+
+function isImpactSubSelected(teamCode, lineupIndex) {
+  const lineup = getLineupForTeam(teamCode);
+  return getImpactSubNames(teamCode).includes(lineup[lineupIndex]);
+}
+
+function toggleImpactSub(teamCode, lineupIndex) {
+  const lineup = [...getLineupForTeam(teamCode)];
+  let targetIndex = lineupIndex;
+  if (lineupIndex >= 12) {
+    const twelfthIndex = Math.min(11, lineup.length - 1);
+    if (twelfthIndex < 0 || lineupIndex >= lineup.length) return;
+    [lineup[twelfthIndex], lineup[lineupIndex]] = [lineup[lineupIndex], lineup[twelfthIndex]];
+    state.teamLineups[teamCode] = lineup;
+    targetIndex = twelfthIndex;
+  }
+
+  const targetName = lineup[targetIndex];
+  if (!targetName) return;
+  const selected = new Set(getImpactSubNames(teamCode));
+  if (selected.has(targetName)) {
+    selected.delete(targetName);
+  } else if (selected.size >= 2) {
+    selected.clear();
+    selected.add(targetName);
+  } else {
+    selected.add(targetName);
+  }
+  state.impactSubs[teamCode] = [...selected];
+  if (getImpactSubNames(teamCode).length === 2) {
+    state.lineupValidationTeam = null;
+  }
+  renderRoster();
+}
+
+function getDefaultImpactSubNames(teamCode) {
+  const lineup = getLineupForTeam(teamCode);
+  if (!lineup.length) return [];
+  const activeTwelve = lineup.slice(0, 12);
+  const preferred = DEFAULT_IMPACT_PLAYERS[teamCode] || [];
+  const selected = preferred.filter((name) => activeTwelve.includes(name));
+  if (selected.length === 2) {
+    return selected;
+  }
+  return [...new Set([activeTwelve[0], activeTwelve[Math.min(11, activeTwelve.length - 1)]]).values()].filter(Boolean);
+}
+
+function getImpactSubIndices(teamCode) {
+  const lineup = getLineupForTeam(teamCode);
+  const activeTwelve = lineup.slice(0, 12);
+  return getImpactSubNames(teamCode)
+    .map((name) => activeTwelve.indexOf(name))
+    .filter((index) => index !== -1)
+    .sort((a, b) => a - b);
+}
+
+function getImpactSubNames(teamCode) {
+  const lineup = getLineupForTeam(teamCode);
+  const activeTwelve = lineup.slice(0, 12);
+  const saved = state.impactSubs?.[teamCode];
+  if (!Array.isArray(saved)) {
+    const defaults = getDefaultImpactSubNames(teamCode);
+    state.impactSubs[teamCode] = defaults;
+    return defaults;
+  }
+
+  const normalized = [...new Set(saved)]
+    .filter((name) => typeof name === "string" && activeTwelve.includes(name));
+  const defaults = getDefaultImpactSubNames(teamCode);
+  if (!normalized.length && defaults.length) {
+    state.impactSubs[teamCode] = defaults;
+    return defaults;
+  }
+  if (normalized.length !== saved.length || normalized.some((value, index) => value !== saved[index])) {
+    state.impactSubs[teamCode] = normalized;
+  }
+  return normalized;
+}
+
+function renderImpactSubWarning(teamCode) {
+  const container = document.getElementById("lineup-impact-warning");
+  if (!container) return;
+  if (state.lineupValidationTeam === teamCode && getImpactSubNames(teamCode).length !== 2) {
+    container.innerHTML = `
+      <div class="lineup-warning">
+        <strong>Choose 2 impact players before simulating.</strong>
+        <span>Select exactly two players from the first 12 cards using the Impact Player button.</span>
+      </div>
+    `;
+    return;
+  }
+  container.innerHTML = `
+    <div class="lineup-helper">
+      <strong>Impact Players</strong>
+      <span>The active XII is the first 12 players. Select 2 impact players from that group.</span>
+    </div>
+  `;
+}
+
+function validateImpactSubsBeforeSimulation(teamCode = state.franchiseTeam) {
+  if (getImpactSubNames(teamCode).length === 2) {
+    state.lineupValidationTeam = null;
+    return true;
+  }
+  state.lineupValidationTeam = teamCode;
+  renderRoster();
+  document.getElementById("roster-title")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  return false;
+}
+
+function updateLineupSlot(teamCode, slotIndex, playerName) {
+  const lineup = [...getLineupForTeam(teamCode)];
+  const existingIndex = lineup.indexOf(playerName);
+  if (existingIndex !== -1) {
+    [lineup[slotIndex], lineup[existingIndex]] = [lineup[existingIndex], lineup[slotIndex]];
+  } else {
+    lineup[slotIndex] = playerName;
+  }
+  state.teamLineups[teamCode] = lineup;
+  renderFeaturedMatchup();
+  renderTeamCards();
+  renderRoster();
+}
+
+function moveLineupPlayer(teamCode, slotIndex, direction) {
+  const lineup = [...getLineupForTeam(teamCode)];
+  const swapIndex = direction === "up" ? slotIndex - 1 : slotIndex + 1;
+  if (swapIndex < 0 || swapIndex >= lineup.length) return;
+  [lineup[slotIndex], lineup[swapIndex]] = [lineup[swapIndex], lineup[slotIndex]];
+  state.teamLineups[teamCode] = lineup;
+  state.selectedLineupSwap = null;
+  renderFeaturedMatchup();
+  renderTeamCards();
+  renderRoster();
+}
+
+function reorderLineupPlayer(teamCode, fromIndex, toIndex) {
+  const lineup = [...getLineupForTeam(teamCode)];
+  if (
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= lineup.length ||
+    toIndex >= lineup.length
+  ) {
+    return;
+  }
+  [lineup[fromIndex], lineup[toIndex]] = [lineup[toIndex], lineup[fromIndex]];
+  state.teamLineups[teamCode] = lineup;
+  state.selectedLineupSwap = null;
+  renderFeaturedMatchup();
+  renderTeamCards();
+  renderRoster();
+}
+
+function buildLineupTeam(team) {
+  if (!team) {
+    return {
+      code: "--",
+      name: "Unavailable Team",
+      venue: "Unavailable",
+      colors: ["#6f7a8c", "#253248"],
+      players: [],
+      teamRatings: { batting: 0, bowling: 0, overall: 0 },
+      attackProfile: buildAttackProfile([])
+    };
+  }
+  const activeTwelve = getLineupForTeam(team.code)
+    .slice(0, 12)
+    .map((name) => team.players.find((playerData) => playerData.name === name))
+    .filter(Boolean)
+    .map((playerData) => clonePlayer(playerData))
+    .filter((playerData) => playerData?.ratings);
+  const impactIndices = getImpactSubIndices(team.code)
+    .filter((index) => index >= 0 && index < activeTwelve.length);
+  const [firstImpactIndex, secondImpactIndex] = impactIndices;
+  const firstImpactPlayer = activeTwelve[firstImpactIndex] || null;
+  const secondImpactPlayer = activeTwelve[secondImpactIndex] || null;
+  const battingImpactPlayer = !firstImpactPlayer || !secondImpactPlayer
+    ? firstImpactPlayer || secondImpactPlayer
+    : firstImpactPlayer.ratings.batting >= secondImpactPlayer.ratings.batting
+      ? firstImpactPlayer
+      : secondImpactPlayer;
+  const bowlingImpactPlayer = !firstImpactPlayer || !secondImpactPlayer
+    ? firstImpactPlayer || secondImpactPlayer
+    : firstImpactPlayer.ratings.bowling >= secondImpactPlayer.ratings.bowling
+      ? firstImpactPlayer
+      : secondImpactPlayer;
+  const battingPlayers = buildImpactAdjustedLineup(activeTwelve, impactIndices, battingImpactPlayer);
+  const bowlingPlayers = buildImpactAdjustedLineup(activeTwelve, impactIndices, bowlingImpactPlayer);
+  const battingRatings = calculateTeamRatings(battingPlayers);
+  const bowlingRatings = calculateTeamRatings(bowlingPlayers);
+  const lineupTeam = {
+    ...team,
+    activeTwelve,
+    players: battingPlayers,
+    battingPlayers,
+    bowlingPlayers
+  };
+  lineupTeam.teamRatings = {
+    batting: battingRatings.batting,
+    bowling: bowlingRatings.bowling,
+    overall: Math.round((battingRatings.overall + bowlingRatings.overall) / 2)
+  };
+  lineupTeam.attackProfile = buildAttackProfile(bowlingPlayers);
+  return lineupTeam;
+}
+
+function buildImpactAdjustedLineup(activeTwelve, impactIndices, chosenImpactPlayer) {
+  if (!impactIndices.length || !chosenImpactPlayer) {
+    return activeTwelve.slice(0, 11);
+  }
+
+  const anchorIndex = Math.min(...impactIndices);
+  const impactIndexSet = new Set(impactIndices);
+  const baseLineup = activeTwelve.filter((_, index) => !impactIndexSet.has(index));
+  baseLineup.splice(anchorIndex, 0, chosenImpactPlayer);
+  return baseLineup.slice(0, 11);
+}
+
+function simulateFranchiseGame() {
+  const nextFixture = getNextFixtureForTeam(state.franchiseTeam);
+  if (!nextFixture) {
+    if (isFranchisePlayoffEligible()) {
+      return simulateNextPlayoffGame();
+    }
+    return null;
+  }
+
+  const round = state.season.schedule[nextFixture.roundIndex];
+  const roundResults = round.fixtures.map((fixture) => {
+    const result = simulateMatch(
+      buildLineupTeam(findTeam(fixture.homeCode)),
+      buildLineupTeam(findTeam(fixture.awayCode))
+    );
+    fixture.played = true;
+    fixture.result = result;
+    updateTable(state.season.table, result);
+    updatePlayers(state.season.playerStats, result);
+    return result;
+  });
+
+  state.season.currentRound = Math.min(state.season.currentRound + 1, state.season.schedule.length);
+  state.season.featuredMatches = [...roundResults, ...state.season.featuredMatches].slice(0, 10);
+  state.season.awards = calculateSeasonAwards(state.season.playerStats);
+  state.tickerLabel = round.label;
+  state.tickerItems = roundResults
+    .filter((result) => result.home.code !== state.franchiseTeam && result.away.code !== state.franchiseTeam)
+    .map((result) => result);
+
+  state.matchLog = [getFeaturedRoundResult(roundResults), ...roundResults.filter((result) => result !== getFeaturedRoundResult(roundResults)), ...state.matchLog]
+    .filter(Boolean)
+    .slice(0, 10);
+
+  return getFeaturedRoundResult(roundResults);
+}
+
+function simulateNextPlayoffGame() {
+  const playoffFixture = getCurrentPlayoffFixture();
+  if (!playoffFixture) {
+    return null;
+  }
+
+  const result = resolveKnockoutResult(
+    simulateMatch(
+      buildLineupTeam(findTeam(playoffFixture.homeCode)),
+      buildLineupTeam(findTeam(playoffFixture.awayCode))
+    )
+  );
+
+  state.season.playoffs.results[playoffFixture.key] = result;
+  updatePlayers(state.season.playerStats, result);
+  state.season.awards = calculateSeasonAwards(state.season.playerStats);
+  state.season.featuredMatches = [result, ...state.season.featuredMatches].slice(0, 10);
+  state.tickerLabel = playoffFixture.label;
+  state.tickerItems = [result];
+  state.matchLog = [result, ...state.matchLog].slice(0, 10);
+
+  if (playoffFixture.key === "final") {
+    state.season.champion = result.winner;
+    state.season.featuredMatches = [
+      result,
+      state.season.playoffs.results.qualifier2,
+      state.season.playoffs.results.eliminator,
+      state.season.playoffs.results.qualifier1,
+      ...state.season.featuredMatches
+    ].filter(Boolean).slice(0, 10);
+  }
+
+  return result;
+}
+
+function restartSeason() {
+  state.season = resetSeason();
+  state.matchLog = [];
+  state.tickerLabel = "";
+  state.tickerItems = [];
+  state.lastCelebratedChampion = null;
+  state.lastCelebratedTournamentMvp = null;
+  syncFeaturedMatchToSeason();
+  renderAll();
+  renderFeaturedResultMessage("Season reset. Set your lineup and simulate the next game on the schedule.");
+}
+
+function renderRatingsPage() {
+  const players = getFilteredPlayers();
+  const visiblePlayers = players.slice(0, 25);
+  const ratingsGrid = document.getElementById("ratings-grid");
+  if (!ratingsGrid) {
+    return;
+  }
+
+  ratingsGrid.innerHTML = visiblePlayers.map((playerData) => `
+    <article class="player-card">
+      <div class="player-header">
+        <div>
+          <h3>${playerData.name}</h3>
+          <p class="player-meta">${playerData.teamCode} • ${playerData.role} • ${playerData.battingStyle}</p>
+        </div>
+        <span class="rating-badge">${playerData.ratings.overall}</span>
+      </div>
+      <div class="player-ratings">
+        <span>Bat<strong>${playerData.ratings.batting}</strong></span>
+        <span>Bowl<strong>${playerData.ratings.bowling}</strong></span>
+        <span>AR<strong>${playerData.ratings.allRound}</strong></span>
+        <span>Cltch<strong>${playerData.ratings.clutch}</strong></span>
+        <span>Fld<strong>${playerData.ratings.fielding}</strong></span>
+        <span>Lead<strong>${playerData.ratings.leadership}</strong></span>
+        <span>Intent<strong>${playerData.ratings.intent}</strong></span>
+        <span>Comp<strong>${playerData.ratings.composure}</strong></span>
+        <span>Econ<strong>${playerData.ratings.econ}</strong></span>
+        <span>WktTk<strong>${playerData.ratings.wkts}</strong></span>
+      </div>
+      <p class="player-season-line">Overall ${playerData.ratings.overall} | Bat ${playerData.ratings.batting} | Bowl ${playerData.ratings.bowling}</p>
+    </article>
+  `).join("");
+
+  renderRatingsLeaders(players);
+}
+
+function renderRatingsLeaders(players) {
+  const container = document.getElementById("ratings-leaders");
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = players.slice(0, 4).map((playerData, index) => `
+    <article class="top-player-card">
+      <div class="player-header">
+        <div>
+          <p class="eyebrow">Rank ${index + 1}</p>
+          <h3>${playerData.name}</h3>
+        </div>
+        <span class="rating-badge">${getRatingsSortValue(playerData, state.ratingsSort)}</span>
+      </div>
+      <p class="player-meta">${playerData.teamCode} • ${playerData.role}</p>
+      <p class="player-season-line">OVR ${playerData.ratings.overall}</p>
+    </article>
+  `).join("");
+}
+
+function getFilteredPlayers() {
+  return teams
+    .flatMap((team) => team.players.map((playerData) => ({ ...playerData, teamCode: team.code })))
+    .filter((playerData) => state.ratingsFilter === "ALL" || playerData.teamCode === state.ratingsFilter)
+    .sort((a, b) => {
+      const primary = getRatingsSortValue(b, state.ratingsSort) - getRatingsSortValue(a, state.ratingsSort);
+      if (primary !== 0) return primary;
+      return b.ratings.overall - a.ratings.overall;
+    });
+}
+
+function getRatingsSortValue(playerData, sortKey) {
+  return playerData.ratings[sortKey] ?? playerData.ratings.overall;
+}
+
+function renderCustomPage() {
+  const teamAContainer = document.getElementById("custom-team-a");
+  const teamBContainer = document.getElementById("custom-team-b");
+  const leagueWrapper = document.getElementById("league-opponent-wrapper");
+  const resultContainer = document.getElementById("custom-match-result");
+  if (!teamAContainer || !teamBContainer || !leagueWrapper || !resultContainer) {
+    return;
+  }
+
+  const opponentTeam = buildLineupTeam(findTeam(state.customLeagueOpponent));
+  leagueWrapper.style.display = "grid";
+  teamAContainer.innerHTML = renderCustomSelectors("teamA");
+  teamBContainer.innerHTML = renderLeagueLineupSlots(opponentTeam);
+
+  attachCustomSelectorListeners("teamA");
+
+  resultContainer.innerHTML = `<div class="scorecard-block"><p class="player-season-line">Pick 11 players for your side, then run the custom match against the selected league XI.</p></div>`;
+}
+
+function renderCustomSelectors(teamKey) {
+  return state.customSelections[teamKey].map((selectedName, index) => `
+    <div class="custom-slot">
+      <label for="${teamKey}-slot-${index}">Slot ${index + 1}</label>
+      <select id="${teamKey}-slot-${index}" data-team-key="${teamKey}" data-slot-index="${index}">
+        ${getAllPlayers().map((playerData) => `
+          <option value="${playerData.name}" ${playerData.name === selectedName ? "selected" : ""}>${playerData.name} • ${playerData.teamCode}</option>
+        `).join("")}
+      </select>
+    </div>
+  `).join("");
+}
+
+function renderLeagueLineupSlots(team) {
+  return team.players.map((playerData, index) => `
+    <div class="custom-slot custom-slot-static">
+      <label>Slot ${index + 1}</label>
+      <div class="custom-slot-display">
+        <strong>${escapeHtml(playerData.name)}</strong>
+        <span>${escapeHtml(playerData.role)} • ${escapeHtml(playerData.battingStyle)}</span>
+      </div>
+    </div>
+  `).join("");
+}
+
+function attachCustomSelectorListeners(teamKey) {
+  document.querySelectorAll(`[data-team-key="${teamKey}"]`).forEach((select) => {
+    select.addEventListener("change", (event) => {
+      const slotIndex = Number(event.target.dataset.slotIndex);
+      state.customSelections[teamKey][slotIndex] = event.target.value;
+    });
+  });
+}
+
+function simulateCustomMatch() {
+  const teamA = buildCustomTeam("Custom XI A", state.customSelections.teamA);
+  const teamB = buildLineupTeam(findTeam(state.customLeagueOpponent));
+  const result = simulateMatch(teamA, teamB);
+  const summary = document.getElementById("custom-summary");
+  const resultContainer = document.getElementById("custom-match-result");
+  if (summary) {
+    summary.innerHTML = renderMatchSummaryHTML(result, {
+      scorecardAnchor: "#custom-scorecard-section",
+      includeLeagueTableLink: false
+    });
+  }
+  if (resultContainer) {
+    resultContainer.innerHTML = renderScorecardMarkup(result);
+  }
+
+  scrollToCustomScorecard();
+  launchCustomMatchOutcomeSymbols(result, teamA.code);
+}
+
+function buildCustomTeam(name, selectedNames) {
+  const players = selectedNames.map((playerName) => clonePlayer(getAllPlayers().find((playerData) => playerData.name === playerName))).filter(Boolean);
+  const code = name === "Custom XI A" ? "CXA" : "CXB";
+  const team = {
+    code,
+    name,
+    identity: "Handcrafted Matchup XI",
+    venue: "Neutral custom venue",
+    colors: code === "CXA" ? ["#f5c451", "#0d3157"] : ["#5ce1e6", "#3b194a"],
+    players
+  };
+  team.teamRatings = calculateTeamRatings(players);
+  team.attackProfile = buildAttackProfile(players);
+  return team;
+}
+
+function scrollToCustomScorecard() {
+  const scorecardSection = document.getElementById("custom-scorecard-section");
+  if (!scorecardSection) {
+    return;
+  }
+
+  window.requestAnimationFrame(() => {
+    scorecardSection.scrollIntoView({
+      behavior: "smooth",
+      block: "start"
+    });
+  });
+}
+
+function launchCustomMatchOutcomeSymbols(result, customTeamCode) {
+  if (!result || result.isTie || !result.winner?.code) {
+    return;
+  }
+
+  const didCustomTeamWin = result.winner.code === customTeamCode;
+  launchOutcomeSymbolBurst({
+    isWin: didCustomTeamWin,
+    pieces: 34,
+    symbol: didCustomTeamWin ? "\u2705" : "\u274C",
+    durationMin: 2200,
+    durationRange: 1100,
+    horizontalInset: 8,
+    driftRange: 220,
+    delayRange: 220
+  });
+}
+
+function getAllPlayers() {
+  return teams.flatMap((team) => team.players.map((playerData) => ({ ...ensurePlayerRuntimeState(playerData), teamCode: team.code })));
+}
+
+function clonePlayer(playerData) {
+  if (!playerData) return null;
+  ensurePlayerRuntimeState(playerData);
+  return {
+    ...playerData,
+    batting: { ...playerData.batting, runs: [...playerData.batting.runs], avg: [...playerData.batting.avg], sr: [...playerData.batting.sr] },
+    bowling: { ...playerData.bowling, wkts: [...playerData.bowling.wkts], eco: [...playerData.bowling.eco], avg: [...playerData.bowling.avg] },
+    ratings: { ...playerData.ratings },
+    profile: {
+      ...playerData.profile,
+      strengths: [...playerData.profile.strengths],
+      weaknesses: [...playerData.profile.weaknesses],
+      bowlingStrengths: [...playerData.profile.bowlingStrengths],
+      bowlingWeaknesses: [...playerData.profile.bowlingWeaknesses]
+    }
+  };
+}
+
+function renderMatchLog() {
+  const container = document.getElementById("match-log");
+  if (!state.matchLog.length) {
+    container.innerHTML = `<div class="match-item"><h3>No simulations yet</h3><p>Run a featured matchup or a full season to populate the feed.</p></div>`;
+    return;
+  }
+
+  container.innerHTML = state.matchLog.map((match) => `
+    <article class="match-item">
+      <div class="match-pill">
+        <strong>${match.scorecard.first.teamCode} ${renderScoreLink(match.scorecard.first, "#live-scorecard-section")}</strong>
+        <span>${match.venue}</span>
+      </div>
+      <p>${match.scorecard.second.teamCode} ${renderScoreLink(match.scorecard.second, "#live-scorecard-section")}</p>
+      <p><strong>${match.isTie ? "Match tied" : `${match.winner.code} won by ${match.margin}`}</strong>. Player of the Match: ${formatMatchMvp(match)}.</p>
+      <div class="scorecard-block">
+        ${renderScorecardMarkup(match)}
+      </div>
+    </article>
+  `).join("");
+}
+
+function renderTicker() {
+  const container = document.getElementById("results-ticker");
+  if (!container) {
+    return;
+  }
+
+  if (!state.tickerItems.length) {
+    const upcoming = getUpcomingTickerWeek();
+    if (upcoming) {
+      const joined = upcoming.fixtures
+        .map((fixture) => `<span class="ticker-result">${renderUpcomingTickerMarkup(fixture)}</span>`)
+        .join('<span class="ticker-separator">•</span>');
+      const sequence = `<span class="ticker-label">${escapeHtml(upcoming.label)}:</span><span class="ticker-result-list">${joined}</span>`;
+      container.innerHTML = buildTickerTrackMarkup(sequence);
+      return;
+    }
+
+    const placeholder = escapeHtml("League results will scroll here on simulation");
+    container.innerHTML = buildTickerTrackMarkup(`<span>${placeholder}</span>`);
+    return;
+  }
+
+  const label = escapeHtml(state.tickerLabel || "WEEK");
+  const joined = state.tickerItems
+    .map((item) => `<span class="ticker-result">${renderTickerResultMarkup(item)}</span>`)
+    .join('<span class="ticker-separator">•</span>');
+  const sequence = `<span class="ticker-label">${label}:</span><span class="ticker-result-list">${joined}</span>`;
+  container.innerHTML = buildTickerTrackMarkup(sequence);
+}
+
+function buildTickerTrackMarkup(sequence) {
+  return `
+    <div class="ticker-track">
+      <div class="ticker-sequence">${sequence}</div>
+      <div class="ticker-sequence" aria-hidden="true">${sequence}</div>
+      <div class="ticker-sequence" aria-hidden="true">${sequence}</div>
+      <div class="ticker-sequence" aria-hidden="true">${sequence}</div>
+    </div>
+  `;
+}
+function renderStandings() {
+  const rows = [...state.season.table].sort((a, b) => b.points - a.points || b.netRunRate - a.netRunRate);
+  document.getElementById("standings").innerHTML = `
+    <table>
+      <thead>
+        <tr><th>Team</th><th>W</th><th>L</th><th>Pts</th><th>NRR</th></tr>
+      </thead>
+      <tbody>
+        ${rows.map((row) => `
+          <tr>
+            <td>${row.team.code}</td>
+            <td>${row.wins}</td>
+            <td>${row.losses}</td>
+            <td>${row.points}</td>
+            <td>${row.netRunRate.toFixed(2)}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderAwards() {
+  const races = [
+    {
+      label: "Best Impact Player",
+      player: state.season.awards.impactPlayer,
+      stat: state.season.awards.impactPlayer
+        ? `${state.season.awards.impactPlayer.mvpScore || 0} impact`
+        : "Need 75% impact usage"
+    },
+    { label: "Purple Cap Holder", player: state.season.awards.bestBowler, stat: `${Math.round(state.season.awards.bestBowler?.seasonWickets || 0)} wickets` },
+    { label: "Orange Cap Holder", player: state.season.awards.bestBatter, stat: `${state.season.awards.bestBatter?.seasonRuns || 0} runs` },
+    { label: "MVP", player: state.season.awards.mvp, stat: `${state.season.awards.mvp?.mvpScore || 0} impact score` }
+  ];
+
+  document.getElementById("award-races").innerHTML = races.map((race) => `
+    <article class="award-item">
+      <div>
+        <p class="eyebrow">${race.label}</p>
+        <strong>${race.player ? race.player.name : "Waiting on simulation"}</strong>
+        <span>${race.player ? `${race.player.teamCode} • ${race.player.role}` : "Simulate a season to populate awards."}</span>
+      </div>
+      <span>${race.stat}</span>
+    </article>
+  `).join("");
+
+  renderSeasonStatLeaders();
+}
+
+function renderLatestScorecard() {
+  const container = document.getElementById("latest-scorecard");
+  if (!container) {
+    return;
+  }
+
+  const latestMatch = state.matchLog[0];
+  if (!latestMatch) {
+    container.innerHTML = `<div class="scorecard-block"><p class="player-season-line">Simulate a match to see a full batting and bowling scorecard here.</p></div>`;
+    return;
+  }
+
+  container.innerHTML = renderScorecardMarkup(latestMatch);
+}
+
+function renderScorecardMarkup(match) {
+  return `
+    <div class="scorecard-block">
+      <div class="scorecard-meta">
+        <span>${match.venue}</span>
+        <span>${match.pitch}</span>
+        <span>Toss: ${match.tossWinner}</span>
+        <span>${match.isTie ? "Match tied" : `${match.winner.code} won by ${match.margin}`}</span>
+        <span>POTM: ${formatMatchMvp(match)}</span>
+      </div>
+      ${match.superOvers?.length ? `
+        <div class="scorecard-table">
+          ${match.superOvers.map((superOver) => `
+            <div class="scorecard-entry">
+              <span>Super Over ${superOver.overNumber}</span>
+              <span>${superOver.homeCode} ${superOver.homeScore} - ${superOver.awayScore} ${superOver.awayCode}</span>
+            </div>
+          `).join("")}
+        </div>
+      ` : ""}
+      ${renderInningsMarkup(match.scorecard.first)}
+      ${renderInningsMarkup(match.scorecard.second)}
+    </div>
+  `;
+}
+
+function renderInningsMarkup(innings) {
+  return `
+    <div class="scorecard-block">
+      <div class="scorecard-innings-head">
+        <strong>${innings.teamCode} Innings</strong>
+        <span>${innings.total}/${innings.wickets} (${innings.overs})</span>
+      </div>
+      <div class="scorecard-table">
+        ${innings.batting.map((entry) => `
+          <div class="scorecard-entry">
+            <span>${entry.name}${entry.notOut ? "*" : ""}</span>
+            <span>${entry.didBat ? `${entry.runs}${entry.notOut ? "*" : ""} (${entry.balls})` : "DNB"}</span>
+          </div>
+        `).join("")}
+      </div>
+      <div class="scorecard-table">
+        ${innings.bowling.map((entry) => `
+          <div class="scorecard-entry">
+            <span>${entry.name}</span>
+            <span>${entry.overs} ov • ${entry.runs} r • ${entry.wickets} w</span>
+          </div>
+        `).join("")}
+        <div class="scorecard-entry">
+          <span>Extras</span>
+          <span>${formatExtrasSummary(innings.extrasBreakdown || { total: innings.extras || 0, wides: 0, noBalls: 0, byes: 0, legByes: 0 })}</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function simulateMatch(home, away) {
+  const pitch = getPitchProfile(home);
+  const tossWinner = Math.random() < 0.5 ? home : away;
+  const bowlFirst = pitch.chaseBias + randomBetween(-0.12, 0.12) > 0.18;
+  const battingFirst = bowlFirst ? (tossWinner.code === home.code ? away : home) : tossWinner;
+  const battingSecond = battingFirst.code === home.code ? away : home;
+  const firstInnings = generateInningsBreakdown(battingFirst, battingSecond, {
+    pitch,
+    inningsNumber: 1,
+    target: null
+  });
+  const secondInnings = generateInningsBreakdown(battingSecond, battingFirst, {
+    pitch,
+    inningsNumber: 2,
+    target: firstInnings.total + 1
+  });
+
+  const homeInnings = battingFirst.code === home.code ? firstInnings : secondInnings;
+  const awayInnings = battingFirst.code === away.code ? firstInnings : secondInnings;
+  const isTie = secondInnings.total === firstInnings.total;
+  const winner = isTie ? null : (secondInnings.total > firstInnings.total ? battingSecond : battingFirst);
+  const margin = isTie
+    ? "tie"
+    : winner.code === battingFirst.code
+      ? `${firstInnings.total - secondInnings.total} runs`
+      : `${10 - secondInnings.wickets} wickets`;
+  const motm = determinePlayerOfMatch(firstInnings, secondInnings, winner);
+
+  const result = {
+    home,
+    away,
+    homeScore: homeInnings.total,
+    awayScore: awayInnings.total,
+    homeWkts: homeInnings.wickets,
+    awayWkts: awayInnings.wickets,
+    winner,
+    isTie,
+    margin,
+    mvp: motm.name,
+    mvpBreakdown: motm,
+    venue: home.venue,
+    pitch: pitch.label,
+    tossWinner: tossWinner.code,
+    battingFirst: battingFirst.code,
+    scorecard: {
+      first: firstInnings,
+      second: secondInnings,
+      home: homeInnings,
+      away: awayInnings
+    }
+  };
+
+  return isTie ? resolveMatchTieWithSuperOvers(result, pitch) : result;
+}
+
+function simulateSeason() {
+  const season = state.season?.schedule?.length ? state.season : resetSeason();
+  if (season.champion) {
+    return season;
+  }
+  const results = [];
+
+  for (let roundIndex = season.currentRound; roundIndex < season.schedule.length; roundIndex += 1) {
+    const round = season.schedule[roundIndex];
+    round.fixtures.forEach((fixture) => {
+      if (fixture.played && fixture.result) {
+        results.push(fixture.result);
+        return;
+      }
+      const result = simulateMatch(
+        buildLineupTeam(findTeam(fixture.homeCode)),
+        buildLineupTeam(findTeam(fixture.awayCode))
+      );
+      fixture.played = true;
+      fixture.result = result;
+      updateTable(season.table, result);
+      updatePlayers(season.playerStats, result);
+      results.push(result);
+    });
+  }
+
+  season.currentRound = season.schedule.length;
+  initializePlayoffs(season);
+  const qualifier1 = playOrReplayPlayoffFixture(season, "qualifier1");
+  const eliminator = playOrReplayPlayoffFixture(season, "eliminator");
+  const qualifier2 = playOrReplayPlayoffFixture(season, "qualifier2");
+  const final = playOrReplayPlayoffFixture(season, "final");
+  state.tickerLabel = "SEASON";
+  state.tickerItems = results.slice(-4);
+  const playoffTeamCodes = new Set(season.playoffs.seedOrder);
+
+  return {
+    ...season,
+    table: season.table,
+    champion: final.winner,
+    featuredMatches: [final, qualifier2, eliminator, qualifier1, ...results.slice(-6).reverse()].slice(0, 10),
+    playerStats: season.playerStats,
+    awards: calculateSeasonAwards(season.playerStats)
+  };
+}
+
+function updateTable(table, result) {
+  const homeRow = table.find((row) => row.team.code === result.home.code);
+  const awayRow = table.find((row) => row.team.code === result.away.code);
+  const delta = (result.homeScore - result.awayScore) / 100;
+
+  if (result.isTie) {
+    homeRow.points += 1;
+    awayRow.points += 1;
+  } else if (result.winner.code === result.home.code) {
+    homeRow.wins += 1;
+    homeRow.points += 2;
+    awayRow.losses += 1;
+  } else {
+    awayRow.wins += 1;
+    awayRow.points += 2;
+    homeRow.losses += 1;
+  }
+
+  homeRow.netRunRate += delta;
+  awayRow.netRunRate -= delta;
+}
+
+function updatePlayers(playerBook, result) {
+  const impactEntries = calculateMatchImpactEntries(result.scorecard.first, result.scorecard.second);
+  const impactMap = new Map(impactEntries.map((entry) => [`${entry.teamCode}::${entry.name}`, entry]));
+  [result.home, result.away].forEach((team) => {
+    const impactAppearanceNames = new Set(getActiveImpactAppearanceNames(team));
+    const seasonParticipants = [
+      ...(team.players || []),
+      ...((team.bowlingPlayers || []).filter((playerData) => !team.players?.some((entry) => entry.name === playerData.name)))
+    ];
+    seasonParticipants.forEach((playerData) => {
+      const found = playerBook.find((entry) => entry.name === playerData.name && entry.teamCode === team.code);
+      if (!found) return;
+      const battingEntry = getSeasonBattingEntry(result, team.code, playerData.name);
+      const bowlingEntry = getSeasonBowlingEntry(result, team.code, playerData.name);
+      const boundaryEstimate = estimateBattingBoundaries(battingEntry);
+      found.matchesPlayed += 1;
+      found.seasonRuns += battingEntry?.runs || 0;
+      found.seasonBallsFaced += battingEntry?.balls || 0;
+      updateHighestScore(found, battingEntry);
+      if (battingEntry?.didBat && !battingEntry.notOut) {
+        found.seasonDismissals = Math.min(found.seasonDismissals + 1, found.matchesPlayed);
+      }
+      found.seasonFours += boundaryEstimate.fours;
+      found.seasonSixes += boundaryEstimate.sixes;
+      found.seasonWickets += bowlingEntry?.wickets || 0;
+      found.seasonOversBalls += bowlingEntry ? oversToBalls(bowlingEntry.overs) : 0;
+      found.seasonRunsConceded += bowlingEntry?.runs || 0;
+      updateBestBowlingFigures(found, bowlingEntry);
+      found.seasonCatches += Math.max(0, Math.round((playerData.fielding - 72) / 18));
+      found.mvpScore += impactMap.get(`${team.code}::${playerData.name}`)?.totalImpact || 0;
+      if (impactAppearanceNames.has(playerData.name)) {
+        found.impactAppearances += 1;
+      }
+      hydrateSeasonRateStats(found);
+    });
+  });
+}
+
+function getActiveImpactAppearanceNames(team) {
+  if (!team?.activeTwelve?.length) {
+    return [];
+  }
+
+  const impactIndices = getImpactSubIndices(team.code)
+    .filter((index) => index >= 0 && index < team.activeTwelve.length);
+  const impactCandidates = impactIndices
+    .map((index) => team.activeTwelve[index])
+    .filter(Boolean);
+  const battingNames = new Set((team.players || []).map((playerData) => playerData.name));
+  const bowlingNames = new Set((team.bowlingPlayers || []).map((playerData) => playerData.name));
+
+  return impactCandidates
+    .filter((playerData) => battingNames.has(playerData.name) || bowlingNames.has(playerData.name))
+    .map((playerData) => playerData.name);
+}
+
+function updateHighestScore(playerData, battingEntry) {
+  if (!battingEntry?.didBat) {
+    return;
+  }
+
+  const isBetterScore = battingEntry.runs > playerData.highestScore;
+  const isSameScoreFaster = battingEntry.runs === playerData.highestScore
+    && battingEntry.balls > 0
+    && (playerData.highestScoreBalls === 0 || battingEntry.balls < playerData.highestScoreBalls);
+
+  if (!isBetterScore && !isSameScoreFaster) {
+    return;
+  }
+
+  playerData.highestScore = battingEntry.runs;
+  playerData.highestScoreBalls = battingEntry.balls || 0;
+  playerData.highestScoreNotOut = Boolean(battingEntry.notOut);
+}
+
+function updateBestBowlingFigures(playerData, bowlingEntry) {
+  if (!bowlingEntry || oversToBalls(bowlingEntry.overs) <= 0) {
+    return;
+  }
+
+  const oversBalls = oversToBalls(bowlingEntry.overs);
+  const economy = oversBalls > 0 ? bowlingEntry.runs / (oversBalls / 6) : 99;
+  const isBetterWicketHaul = bowlingEntry.wickets > playerData.bestBowlingWickets;
+  const isSameWicketsBetterEconomy = bowlingEntry.wickets === playerData.bestBowlingWickets
+    && economy < playerData.bestBowlingEconomy;
+  const isSameFiguresBetterRuns = bowlingEntry.wickets === playerData.bestBowlingWickets
+    && economy === playerData.bestBowlingEconomy
+    && bowlingEntry.runs < playerData.bestBowlingRuns;
+
+  if (!isBetterWicketHaul && !isSameWicketsBetterEconomy && !isSameFiguresBetterRuns) {
+    return;
+  }
+
+  playerData.bestBowlingWickets = bowlingEntry.wickets;
+  playerData.bestBowlingRuns = bowlingEntry.runs;
+  playerData.bestBowlingOversBalls = oversBalls;
+  playerData.bestBowlingEconomy = economy;
+}
+
+function getSeasonBattingEntry(result, teamCode, playerName) {
+  const innings = [result.scorecard.first, result.scorecard.second].find((entry) => entry.teamCode === teamCode);
+  return innings?.batting?.find((entry) => entry.name === playerName) || null;
+}
+
+function getSeasonBowlingEntry(result, teamCode, playerName) {
+  const innings = [result.scorecard.first, result.scorecard.second].find((entry) => entry.teamCode !== teamCode);
+  return innings?.bowling?.find((entry) => entry.name === playerName) || null;
+}
+
+function estimateBattingBoundaries(entry) {
+  if (!entry?.didBat) {
+    return { fours: 0, sixes: 0 };
+  }
+
+  const sixes = Math.max(0, Math.round(entry.runs / 19));
+  const fours = Math.max(0, Math.round((entry.runs - sixes * 6) / 9));
+  return { fours, sixes };
+}
+
+function resolveKnockoutResult(result) {
+  return result;
+}
+
+function resolveMatchTieWithSuperOvers(result, pitch) {
+  const superOvers = [];
+  let winner = null;
+
+  while (!winner) {
+    const superOver = simulateSuperOver(result.home, result.away, pitch, superOvers.length + 1);
+    superOvers.push(superOver);
+    if (superOver.homeScore !== superOver.awayScore) {
+      winner = superOver.homeScore > superOver.awayScore ? result.home : result.away;
+    }
+  }
+
+  return {
+    ...result,
+    isTie: false,
+    winner,
+    margin: superOvers.length === 1 ? "super over" : `${superOvers.length} super overs`,
+    superOvers
+  };
+}
+
+function simulateSuperOver(home, away, pitch, overNumber) {
+  const battingStrength = (team) => average(team.players.slice(0, 3).map((playerData) => playerData.ratings.batting + playerData.ratings.clutch * 0.2));
+  const bowlingStrength = (team) => average(
+    [...team.players]
+      .sort((a, b) => b.ratings.bowling - a.ratings.bowling)
+      .slice(0, 2)
+      .map((playerData) => playerData.ratings.bowling + playerData.ratings.wkts * 0.15)
+  );
+  const scoreFor = (battingTeam, bowlingTeam) => Math.round(clamp(
+    9 +
+    pitch.scoringBoost * 0.08 +
+    (battingStrength(battingTeam) - bowlingStrength(bowlingTeam)) * 0.12 +
+    randomBetween(-3.4, 3.4),
+    2,
+    22
+  ));
+
+  const homeScore = scoreFor(home, away);
+  const awayScore = scoreFor(away, home);
+  return {
+    overNumber,
+    homeCode: home.code,
+    awayCode: away.code,
+    homeScore,
+    awayScore
+  };
+}
+
+function determinePlayerOfMatch(firstInnings, secondInnings, winner) {
+  const ranked = calculateMatchImpactEntries(firstInnings, secondInnings)
+    .filter((entry) => !winner || entry.teamCode === winner.code)
+    .sort((a, b) => b.totalImpact - a.totalImpact || b.battingImpact - a.battingImpact || b.bowlingImpact - a.bowlingImpact);
+
+  return ranked[0] || createImpactEntry(winner ? winner.players[0].name : firstInnings.batting[0].name, winner ? winner.code : firstInnings.teamCode);
+}
+
+function calculateMatchImpactEntries(firstInnings, secondInnings) {
+  const inningsList = [firstInnings, secondInnings];
+  const playerImpacts = new Map();
+
+  inningsList.forEach((innings) => {
+    const bowlingTeamCode = innings.teamCode === firstInnings.teamCode ? secondInnings.teamCode : firstInnings.teamCode;
+
+    innings.batting.forEach((entry) => {
+      if (!entry.didBat) return;
+      const strikeRate = entry.balls > 0 ? (entry.runs / entry.balls) * 100 : 0;
+      const runsImpact = entry.runs * 0.9;
+      const strikeRateImpact = entry.balls >= 8
+        ? Math.max(-12, Math.min(20, (strikeRate - 125) * 0.18))
+        : Math.max(-4, Math.min(8, (strikeRate - 125) * 0.08));
+      const battingImpact = runsImpact + strikeRateImpact;
+      const playerKey = getMatchImpactKey(entry.name, innings.teamCode);
+      const existing = playerImpacts.get(playerKey) || createImpactEntry(entry.name, innings.teamCode);
+      existing.battingImpact += battingImpact;
+      existing.totalImpact += battingImpact;
+      playerImpacts.set(playerKey, existing);
+    });
+
+    innings.bowling.forEach((entry) => {
+      const oversValue = oversToBalls(entry.overs) / 6;
+      if (oversValue <= 0) return;
+      const economy = oversValue > 0 ? entry.runs / oversValue : 99;
+      const wicketsImpact = entry.wickets * 36;
+      const economyImpact = Math.max(-10, Math.min(18, (7.2 - economy) * oversValue * 1.5));
+      const bowlingImpact = wicketsImpact + economyImpact;
+      const playerKey = getMatchImpactKey(entry.name, bowlingTeamCode);
+      const existing = playerImpacts.get(playerKey) || createImpactEntry(entry.name, bowlingTeamCode);
+      existing.bowlingImpact += bowlingImpact;
+      existing.totalImpact += bowlingImpact;
+      playerImpacts.set(playerKey, existing);
+    });
+  });
+
+  return [...playerImpacts.values()].map((entry) => ({
+    ...entry,
+    battingImpact: Math.round(entry.battingImpact),
+    bowlingImpact: Math.round(entry.bowlingImpact),
+    totalImpact: Math.round(entry.totalImpact)
+  }));
+}
+
+function createImpactEntry(name, teamCode) {
+  return {
+    name,
+    teamCode,
+    battingImpact: 0,
+    bowlingImpact: 0,
+    totalImpact: 0
+  };
+}
+
+function getMatchImpactKey(name, teamCode) {
+  return `${teamCode}::${name}`;
+}
+
+function generateInningsBreakdown(battingTeam, bowlingTeam, context) {
+  const pitch = context.pitch;
+  const battingOrder = (battingTeam.battingPlayers || battingTeam.players).map((playerData, index) => ({ ...playerData, position: index + 1 }));
+  const battingComposition = buildBattingComposition(battingOrder);
+  const battingModifiers = battingOrder.map((playerData, index) =>
+    getBattingConditionsModifier(playerData, bowlingTeam.attackProfile, pitch, index)
+  );
+  const teamMatchup = average(battingModifiers);
+  const volatility = 10 + pitch.volatility * 8;
+
+  const expectedTotal = clamp(
+    150 +
+    pitch.scoringBoost +
+    (battingTeam.teamRatings.batting - bowlingTeam.teamRatings.bowling) * 0.95 +
+    teamMatchup * 11 +
+    randomBetween(-volatility, volatility),
+    105,
+    214
+  );
+
+  let wickets = Math.round(clamp(
+    7.2 +
+    pitch.wicketPressure +
+    (bowlingTeam.teamRatings.bowling - battingTeam.teamRatings.batting) / 15 -
+    teamMatchup * 1 +
+    randomBetween(-1.5, 1.5),
+    2,
+    10
+  ));
+
+  let total = Math.round(expectedTotal);
+  let oversBalls = 120;
+  const target = context.target;
+  const chasing = context.inningsNumber === 2;
+  let chaseSucceeded = false;
+  let desiredWinningTotal = null;
+
+  if (chasing) {
+    const targetPressure = ((target || 0) - 164) / 20;
+    const chaseAdvantage =
+      pitch.chaseBias * 0.7 +
+        (battingTeam.teamRatings.batting - bowlingTeam.teamRatings.bowling) / 42 +
+        teamMatchup * 0.28 -
+        targetPressure;
+    const chaseSuccess = chaseAdvantage + randomBetween(-1.15, 0.95) > 0.12;
+    if (chaseSuccess) {
+      chaseSucceeded = true;
+      wickets = Math.round(clamp(wickets - randomBetween(0.3, 1.4), 2, 7));
+      oversBalls = Math.round(clamp(
+        72 + (target - 110) * 0.45 + wickets * 3 + randomBetween(-8, 10),
+        36,
+        119
+      ));
+      desiredWinningTotal = target + pickChaseWinningBuffer();
+      const projectedExtras = estimateInningsExtras(oversBalls, wickets, pitch).total;
+      total = clamp(
+        desiredWinningTotal - projectedExtras,
+        Math.max(0, target - projectedExtras),
+        Math.max(0, target + 5 - projectedExtras)
+      );
+    } else {
+      total = Math.min(target - 1, Math.round(expectedTotal - randomBetween(6, 28) - Math.max(0, targetPressure * 6)));
+      if (Math.random() < 0.32 + Math.max(0, targetPressure * 0.06)) {
+        oversBalls = Math.round(clamp(102 + randomBetween(-8, 6), 84, 119));
+        wickets = 10;
+      } else {
+        oversBalls = 120;
+        wickets = Math.round(clamp(wickets, 4, 8));
+      }
+    }
+  } else if (wickets === 10) {
+    oversBalls = Math.round(clamp(86 + total * 0.12 + randomBetween(-12, 10), 54, 119));
+  }
+
+  const overs = formatOversFromBalls(oversBalls);
+  const wicketsLost = wickets;
+  const notOutCount = wicketsLost === 10 ? 1 : 2;
+  const didBatCount = Math.min(battingOrder.length, wicketsLost + notOutCount);
+  const activeBatters = battingOrder.slice(0, didBatCount);
+  const activeModifiers = battingModifiers.slice(0, didBatCount);
+  const battingWeights = normalizeShares(activeBatters.map((playerData, index) => {
+    const failureRisk = getDismissalRisk(playerData, bowlingTeam.attackProfile, pitch, index);
+    const basePhaseBalls = estimatePhaseBalls(index, didBatCount, oversBalls);
+    const deathOversShare = Math.max(0, (basePhaseBalls - Math.max(0, oversBalls - 24)) / Math.max(1, basePhaseBalls));
+    const composureFactor = 0.94 + ((playerData.ratings.composure - 50) / 100) * 0.16;
+    const battingShareSkillFactor = clamp(0.68 + ((playerData.ratings.batting - 60) / 35) * 0.38, 0.52, 1.2);
+    const upside = randomBetween(
+      playerData.ratings.batting >= 85 ? 0.58 : playerData.ratings.batting >= 75 ? 0.46 : 0.34,
+      playerData.ratings.batting >= 90 ? 1.26 : playerData.ratings.batting >= 80 ? 1.1 : playerData.ratings.batting >= 70 ? 0.94 : 0.82
+    );
+    const failureChance = clamp(
+      failureRisk +
+      Math.max(0, 76 - playerData.ratings.batting) * 0.004 +
+      (index < 3 && playerData.ratings.batting < 78 ? 0.07 : 0),
+      0.06,
+      0.72
+    );
+    const collapse = Math.random() < failureChance
+      ? randomBetween(
+        playerData.ratings.batting >= 85 ? 0.14 : playerData.ratings.batting >= 75 ? 0.08 : 0.03,
+        playerData.ratings.batting >= 85 ? 0.42 : playerData.ratings.batting >= 75 ? 0.32 : 0.24
+      )
+      : 1;
+    return Math.max(0.2, playerData.ratings.batting * battingShareSkillFactor * activeModifiers[index] * composureFactor * upside * collapse);
+  }));
+
+  let assignedRuns = 0;
+  let assignedBalls = 0;
+  const batting = battingOrder.map((playerData, index) => {
+    if (index >= didBatCount) {
+      return { name: playerData.name, didBat: false, runs: 0, balls: 0, notOut: false };
+    }
+
+    const localIndex = index;
+    const remainingRuns = total - assignedRuns;
+    const remainingBalls = oversBalls - assignedBalls;
+    const remainingBatters = didBatCount - localIndex;
+    const notOut = localIndex >= didBatCount - notOutCount;
+    const projectedEntryBalls = estimatePhaseBalls(localIndex, didBatCount, oversBalls);
+    const deathOversShare = Math.max(0, (projectedEntryBalls - Math.max(0, oversBalls - 24)) / Math.max(1, projectedEntryBalls));
+    const liveDeathOvers = remainingBalls <= 24;
+    const liveClosingOvers = remainingBalls <= 36;
+    const survivalGear = 1 + ((playerData.ratings.composure - 50) / 100) * 0.18;
+    const boundaryGear = 1 + ((playerData.ratings.intent - 50) / 100) * (0.03 + deathOversShare * 0.12);
+    const baseOrderBallBias = localIndex < 3 ? 1.02 : localIndex < 4 ? 0.94 : localIndex < 7 ? 0.82 : 0.66;
+    const battingQualityBallBias = clamp(0.78 + ((playerData.ratings.batting - 50) / 40) * 0.22, 0.72, 1.12);
+    const topOrderControlTax = localIndex < 3 && playerData.ratings.batting < 78
+      ? clamp(0.74 + ((playerData.ratings.batting - 60) / 18) * 0.14, 0.72, 0.92)
+      : 1;
+    const orderBallBias = baseOrderBallBias * battingQualityBallBias * topOrderControlTax;
+    const deathOversSpecialistRisk = (deathOversShare > 0.42 || liveDeathOvers) && localIndex >= 5 && playerData.ratings.batting < 60;
+    const lowOrderStrikeRotator = (deathOversShare > 0.3 || liveClosingOvers) && localIndex >= 5 && playerData.ratings.batting < 70;
+    const sub85FinisherLimiter = localIndex >= 4 && playerData.ratings.batting < 85;
+    const sub85LateLimiter = sub85FinisherLimiter && (deathOversShare > 0.24 || liveClosingOvers);
+    const topOrderRunFloor = localIndex < 4
+      ? playerData.ratings.batting >= 84 ? 4 : playerData.ratings.batting >= 76 ? 2 : 0
+      : 0;
+    const baseMinRuns = !notOut && Math.random() < 0.4 ? 0 : topOrderRunFloor;
+    const maxBallsForBatter = localIndex === didBatCount - 1
+      ? Math.max(1, remainingBalls)
+      : Math.max(1, remainingBalls - (remainingBatters - 1));
+    const lowOrderBallCap = localIndex >= 5 && playerData.ratings.batting < 70
+      ? (playerData.ratings.batting < 60 ? 10 : 14)
+      : maxBallsForBatter;
+    const sub85BallCap = sub85FinisherLimiter
+      ? (playerData.ratings.batting < 75 ? (liveDeathOvers ? 4 : liveClosingOvers ? 5 : 6) : (liveDeathOvers ? 5 : liveClosingOvers ? 6 : 7))
+      : maxBallsForBatter;
+    const effectiveMaxBalls = lowOrderStrikeRotator
+      ? Math.min(maxBallsForBatter, liveDeathOvers ? (deathOversSpecialistRisk ? 1 : 3) : deathOversSpecialistRisk ? 2 : 4)
+      : Math.min(maxBallsForBatter, lowOrderBallCap, sub85BallCap);
+    const lowOrderCameoCap = localIndex >= 5 && playerData.ratings.batting < 70
+      ? (playerData.ratings.batting < 60 ? 8 : 12)
+      : Number.POSITIVE_INFINITY;
+    const sub85CameoCap = sub85FinisherLimiter
+      ? (playerData.ratings.batting < 75 ? (sub85LateLimiter ? 11 : 13) : (sub85LateLimiter ? 14 : 16))
+      : Number.POSITIVE_INFINITY;
+    const lowOrderRunRateCap = localIndex >= 5 && playerData.ratings.batting < 70
+      ? (liveDeathOvers ? (playerData.ratings.batting < 60 ? 1.8 : 2.1) : liveClosingOvers ? (playerData.ratings.batting < 60 ? 1.9 : 2.2) : (playerData.ratings.batting < 60 ? 2 : 2.25))
+      : 6;
+    const sub85RunRateCap = sub85FinisherLimiter
+      ? (liveDeathOvers ? (playerData.ratings.batting < 75 ? 1.9 : 2.05) : liveClosingOvers ? (playerData.ratings.batting < 75 ? 2 : 2.15) : (playerData.ratings.batting < 75 ? 2.05 : 2.2))
+      : 6;
+    let runs = localIndex === didBatCount - 1
+      ? Math.max(0, remainingRuns)
+      : Math.min(
+        Math.max(baseMinRuns, Math.round(total * battingWeights[localIndex] * boundaryGear)),
+        Math.max(0, remainingRuns - (remainingBatters - 1) * 0)
+      );
+    const chasePressureNow = chasing ? ((target - assignedRuns) / Math.max(1, remainingBalls / 6)) : 0;
+    const forceRotationSingle =
+      chasing &&
+      deathOversShare > 0.2 &&
+      chasePressureNow > 8.5 &&
+      runs === 0 &&
+      remainingRuns > 0;
+    if (forceRotationSingle) {
+      runs = 1;
+    }
+    if (deathOversSpecialistRisk && !notOut && Math.random() < (liveDeathOvers ? 0.82 : 0.72)) {
+      runs = Math.min(runs, Math.random() < 0.8 ? 0 : 1);
+    } else if (lowOrderStrikeRotator && remainingRuns > 0 && Math.random() < 0.86) {
+      runs = Math.max(1, Math.min(runs, Math.random() < 0.78 ? 1 : 2));
+    }
+    if (lowOrderCameoCap !== Number.POSITIVE_INFINITY) {
+      runs = Math.min(runs, lowOrderCameoCap);
+      if (playerData.ratings.batting < 60 && Math.random() < (remainingBalls <= 30 ? 0.88 : 0.74)) {
+        runs = Math.min(runs, 4);
+      } else if (playerData.ratings.batting < 70 && Math.random() < (remainingBalls <= 30 ? 0.76 : 0.58)) {
+        runs = Math.min(runs, 7);
+      }
+    }
+    if (sub85CameoCap !== Number.POSITIVE_INFINITY) {
+      runs = Math.min(runs, sub85CameoCap);
+      if (playerData.ratings.batting < 75 && Math.random() < (remainingBalls <= 30 ? 0.9 : 0.76)) {
+        runs = Math.min(runs, 7);
+      } else if (playerData.ratings.batting < 85 && Math.random() < (remainingBalls <= 30 ? 0.84 : 0.72)) {
+        runs = Math.min(runs, 10);
+      }
+    }
+    if (localIndex >= 5 && playerData.ratings.batting < 70) {
+      runs = Math.min(runs, Math.round(effectiveMaxBalls * lowOrderRunRateCap));
+    } else if (sub85FinisherLimiter) {
+      runs = Math.min(runs, Math.round(effectiveMaxBalls * sub85RunRateCap));
+    }
+    if (sub85FinisherLimiter && runs >= 18 && Math.random() < (sub85LateLimiter ? 0.9 : 0.78)) {
+      runs = Math.min(runs, playerData.ratings.batting < 75 ? 9 : 12);
+    }
+    if (sub85FinisherLimiter && runs >= 10 && Math.random() < (sub85LateLimiter ? 0.82 : 0.66)) {
+      runs = Math.min(runs, playerData.ratings.batting < 75 ? 6 : 8);
+    } else if (sub85FinisherLimiter && runs >= 5 && Math.random() < (sub85LateLimiter ? 0.72 : 0.58)) {
+      runs = Math.min(runs, playerData.ratings.batting < 75 ? 3 : 4);
+    }
+    runs = Math.min(runs, effectiveMaxBalls * 6);
+    const strikeRateFloor = deathOversShare > 0 ? 100 : 90;
+    const strikeRate = Math.max(strikeRateFloor, playerData.batting.sr[2] || 110);
+    const balls = localIndex === didBatCount - 1
+      ? Math.min(
+        Math.max(Math.ceil(runs / 6), 1),
+        effectiveMaxBalls
+      )
+      : Math.min(
+        Math.max(
+          runs === 0 ? 1 : 2,
+          Math.ceil(runs / 6),
+          Math.round((runs / strikeRate) * 100 * (1 / survivalGear) * orderBallBias * randomBetween(0.86, 1.16))
+        ),
+        effectiveMaxBalls
+      );
+    const adjustedBalls = lowOrderStrikeRotator && runs <= 2
+      ? Math.min(balls, Math.max(1, runs), deathOversSpecialistRisk ? 1 : 2)
+      : balls;
+    const scrappyBallFloor = sub85FinisherLimiter
+      ? runs <= 1
+        ? 1
+        : runs <= 4
+          ? runs
+          : runs <= 8
+            ? Math.max(4, Math.ceil(runs * 0.8))
+            : Math.max(6, Math.ceil(runs * 0.7))
+      : 1;
+    const realisticBalls = sub85FinisherLimiter
+      ? Math.min(effectiveMaxBalls, Math.max(adjustedBalls, scrappyBallFloor))
+      : adjustedBalls;
+
+    assignedRuns += runs;
+    assignedBalls += realisticBalls;
+
+    return {
+      name: playerData.name,
+      didBat: true,
+      runs,
+      balls: realisticBalls,
+      notOut
+    };
+  });
+  const notOutIndices = pickNotOutIndices(batting.slice(0, didBatCount), activeModifiers, notOutCount, wicketsLost);
+  batting.forEach((entry, index) => {
+    if (entry.didBat) {
+      entry.balls = Math.max(entry.balls, Math.ceil(entry.runs / 6));
+      entry.notOut = notOutIndices.includes(index);
+    }
+  });
+  reconcileBattingBalls(batting, oversBalls);
+  const battingRunsTotal = batting.reduce((sum, entry) => sum + (entry.didBat ? entry.runs : 0), 0);
+  const extrasBreakdown = estimateInningsExtras(oversBalls, wicketsLost, pitch);
+  let inningsTotal = battingRunsTotal + extrasBreakdown.total;
+  if (chasing && chaseSucceeded && target && desiredWinningTotal !== null) {
+    const boundedWinningTotal = clamp(desiredWinningTotal, target, target + 5);
+    if (inningsTotal !== boundedWinningTotal) {
+      adjustInningsTotal(batting, extrasBreakdown, boundedWinningTotal - inningsTotal);
+      inningsTotal = batting.reduce((sum, entry) => sum + (entry.didBat ? entry.runs : 0), 0) + extrasBreakdown.total;
+    }
+  }
+
+  const bowlersAvailable = (bowlingTeam.bowlingPlayers || bowlingTeam.players)
+    .filter((playerData) => playerData.ratings.bowling >= 40 || isBowler(playerData) || isAllRounder(playerData))
+    .sort((a, b) => b.ratings.bowling - a.ratings.bowling);
+  const minimumBowlers = Math.ceil(oversBalls / 24);
+  const targetBowlerCount = oversBalls >= 114
+    ? randomInt(6, Math.min(7, bowlersAvailable.length))
+    : oversBalls >= 84
+      ? randomInt(5, Math.min(6, bowlersAvailable.length))
+      : randomInt(4, Math.min(5, bowlersAvailable.length));
+  const bowlerCount = Math.min(
+    bowlersAvailable.length,
+    Math.max(minimumBowlers, targetBowlerCount || minimumBowlers)
+  );
+  const bowlingCore = bowlersAvailable.slice(0, bowlerCount);
+  const bowlingWeights = normalizeShares(bowlingCore.map((playerData, index) =>
+    Math.max(0.2, playerData.ratings.bowling * getBowlingConditionsModifier(playerData, pitch, battingComposition) - index * 1.5)
+  ));
+  const bowlingSpellBalls = allocateBowlingBalls(oversBalls, bowlingCore.length, bowlingWeights);
+  const deathOversBalls = allocateDeathOversBalls(bowlingCore, bowlingSpellBalls, oversBalls);
+
+  const rawBowlingRuns = bowlingCore.map((playerData, index) => {
+    const oversValue = bowlingSpellBalls[index] / 6;
+    const baseEconomy = playerData.bowling.eco[2] || weightedAverage(playerData.bowling.eco, [0.2, 0.3, 0.5], true) || 8.2;
+    const conditionFactor = getBowlingConditionsModifier(playerData, pitch, battingComposition);
+    const deathShare = deathOversBalls[index] / Math.max(1, bowlingSpellBalls[index]);
+    const deathFactor = getDeathBowlingFactor(playerData, deathShare);
+    const adjustedEconomy = clamp(baseEconomy / conditionFactor / deathFactor.economyBoost * randomBetween(0.92, 1.08), 4.2, 13.5);
+    return Math.max(1, oversValue * adjustedEconomy);
+  });
+  const totalRawRuns = rawBowlingRuns.reduce((sum, value) => sum + value, 0) || 1;
+  let bowlingRunsAssigned = 0;
+  let bowlingWicketsAssigned = 0;
+  const bowling = bowlingCore.map((playerData, index) => {
+    const remainingRuns = inningsTotal - bowlingRunsAssigned;
+    const remainingWickets = wicketsLost - bowlingWicketsAssigned;
+    const remainingBowlers = bowlingCore.length - index;
+    const deathShare = deathOversBalls[index] / Math.max(1, bowlingSpellBalls[index]);
+    const deathFactor = getDeathBowlingFactor(playerData, deathShare);
+    const runs = index === bowlingCore.length - 1
+      ? Math.max(0, remainingRuns)
+      : Math.min(
+        Math.max(1, Math.round((rawBowlingRuns[index] / totalRawRuns) * inningsTotal)),
+        Math.max(0, remainingRuns - (remainingBowlers - 1))
+      );
+    const wicketsForBowler = index === bowlingCore.length - 1
+      ? Math.max(0, remainingWickets)
+      : Math.min(
+        Math.max(0, Math.round(wicketsLost * bowlingWeights[index] * deathFactor.wicketBoost * randomBetween(0.7, 1.18))),
+        Math.max(0, remainingWickets)
+      );
+    bowlingRunsAssigned += runs;
+    bowlingWicketsAssigned += wicketsForBowler;
+    return {
+      name: playerData.name,
+      overs: formatOversFromBalls(bowlingSpellBalls[index]),
+      runs,
+      wickets: wicketsForBowler
+    };
+  }).filter((entry) => oversToBalls(entry.overs) > 0);
+
+  return {
+    teamCode: battingTeam.code,
+    total: inningsTotal,
+    extras: extrasBreakdown.total,
+    extrasBreakdown,
+    wickets: wicketsLost,
+    overs,
+    batting,
+    bowling
+  };
+}
+
+function adjustInningsTotal(batting, extrasBreakdown, delta) {
+  if (delta === 0) {
+    return;
+  }
+
+  if (delta < 0) {
+    trimInningsRuns(batting, extrasBreakdown, Math.abs(delta));
+    return;
+  }
+
+  const lastBatter = [...batting].reverse().find((entry) => entry.didBat);
+  if (lastBatter) {
+    lastBatter.runs += delta;
+    lastBatter.balls = Math.max(lastBatter.balls, Math.ceil(lastBatter.runs / 6));
+  } else {
+    extrasBreakdown.byes = (extrasBreakdown.byes || 0) + delta;
+    extrasBreakdown.total += delta;
+  }
+}
+
+function trimInningsRuns(batting, extrasBreakdown, runsToTrim) {
+  let remaining = runsToTrim;
+  const extraFields = ["wides", "noBalls", "legByes", "byes"];
+
+  extraFields.forEach((field) => {
+    if (remaining <= 0) return;
+    const current = extrasBreakdown[field] || 0;
+    const reduction = Math.min(current, remaining);
+    extrasBreakdown[field] = current - reduction;
+    extrasBreakdown.total = Math.max(0, extrasBreakdown.total - reduction);
+    remaining -= reduction;
+  });
+
+  for (let index = batting.length - 1; index >= 0 && remaining > 0; index -= 1) {
+    const entry = batting[index];
+    if (!entry.didBat || entry.runs <= 0) {
+      continue;
+    }
+    const reduction = Math.min(entry.runs, remaining);
+    entry.runs -= reduction;
+    remaining -= reduction;
+  }
+}
+
+function pickChaseWinningBuffer() {
+  const roll = Math.random();
+  if (roll < 0.3) return 0;
+  if (roll < 0.55) return 1;
+  if (roll < 0.75) return 2;
+  if (roll < 0.89) return 3;
+  if (roll < 0.97) return 4;
+  return 5;
+}
+
+function estimateInningsExtras(oversBalls, wicketsLost, pitch) {
+  const total = Math.round(clamp(
+    4 +
+    oversBalls / 30 +
+    wicketsLost * 0.35 +
+    pitch.scoringBoost / 28 +
+    randomBetween(-2, 3),
+    2,
+    18
+  ));
+  let remaining = total;
+  const wides = Math.min(remaining, Math.max(0, Math.round(total * randomBetween(0.3, 0.5))));
+  remaining -= wides;
+  const noBalls = Math.min(remaining, Math.max(0, Math.round(total * randomBetween(0.05, 0.15))));
+  remaining -= noBalls;
+  const byes = Math.min(remaining, Math.max(0, Math.round(total * randomBetween(0.1, 0.25))));
+  remaining -= byes;
+  const legByes = Math.max(0, remaining);
+  return {
+    total,
+    wides,
+    noBalls,
+    byes,
+    legByes
+  };
+}
+
+function reconcileBattingBalls(batting, targetBalls) {
+  const activeEntries = batting.filter((entry) => entry.didBat);
+  if (!activeEntries.length) {
+    return;
+  }
+
+  const currentBalls = activeEntries.reduce((sum, entry) => sum + entry.balls, 0);
+  if (currentBalls === targetBalls) {
+    return;
+  }
+
+  const orderedEntries = [...activeEntries].sort((a, b) => {
+    if (a.notOut !== b.notOut) return a.notOut ? -1 : 1;
+    return b.balls - a.balls;
+  });
+
+  if (currentBalls < targetBalls) {
+    let remaining = targetBalls - currentBalls;
+    let index = 0;
+    while (remaining > 0) {
+      orderedEntries[index % orderedEntries.length].balls += 1;
+      remaining -= 1;
+      index += 1;
+    }
+    return;
+  }
+
+  let removable = currentBalls - targetBalls;
+  let index = 0;
+  while (removable > 0 && index < orderedEntries.length * targetBalls) {
+    const entry = orderedEntries[index % orderedEntries.length];
+    const minimumBalls = Math.max(1, Math.ceil(entry.runs / 6));
+    if (entry.balls > minimumBalls) {
+      entry.balls -= 1;
+      removable -= 1;
+    }
+    index += 1;
+  }
+}
+
+function formatExtrasSummary(extrasBreakdown) {
+  const total = extrasBreakdown?.total || 0;
+  const parts = [];
+  if (extrasBreakdown?.wides) parts.push(`Wd ${extrasBreakdown.wides}`);
+  if (extrasBreakdown?.noBalls) parts.push(`Nb ${extrasBreakdown.noBalls}`);
+  if (extrasBreakdown?.byes) parts.push(`B ${extrasBreakdown.byes}`);
+  if (extrasBreakdown?.legByes) parts.push(`Lb ${extrasBreakdown.legByes}`);
+  return parts.length ? `${total} (${parts.join(", ")})` : `${total}`;
+}
+
+function renderFeaturedResult(result, prefix = "", includeSeasonAwards = false) {
+  document.getElementById("featured-result").innerHTML = renderMatchSummaryHTML(result, {
+    prefix,
+    scorecardAnchor: "#live-scorecard-section",
+    includeSeasonAwards
+  });
+}
+
+function renderMatchSummaryHTML(result, options = {}) {
+  const {
+    prefix = "",
+    scorecardAnchor = "#live-scorecard-section",
+    includeSeasonAwards = false,
+    awardsAnchor = "#awards-watch-section",
+    includeLeagueTableLink = true
+  } = options;
+  const sentences = [];
+
+  if (prefix) {
+    sentences.push(includeSeasonAwards ? `<a class="inline-award-link" href="${awardsAnchor}">Season simulated</a>. ${prefix}` : prefix);
+  }
+
+  sentences.push(
+    `${result.scorecard.first.teamCode} made ${renderScoreLink(result.scorecard.first, scorecardAnchor)} in ${result.scorecard.first.overs}.`
+  );
+  sentences.push(
+    `${result.scorecard.second.teamCode} replied with ${renderScoreLink(result.scorecard.second, scorecardAnchor)} in ${result.scorecard.second.overs}.`
+  );
+  sentences.push(result.isTie ? "The match finished tied." : `${result.winner.name} won by ${result.margin}.`);
+  sentences.push(includeLeagueTableLink
+    ? `${formatMatchMvp(result)} earned Player of the Match. <a class="inline-award-link" href="#standings-section">League Table</a>.`
+    : `${formatMatchMvp(result)} earned Player of the Match.`);
+
+  if (includeSeasonAwards && state.season?.awards?.mvp) {
+    sentences.push(
+      `Man of the Tournament: <a class="inline-award-link" href="${awardsAnchor}">${state.season.awards.mvp.name}</a>.`
+    );
+  }
+
+  return sentences.join(" ");
+}
+
+function renderScoreLink(innings, anchor) {
+  return `<a class="inline-score-link" href="${anchor}">${innings.total}/${innings.wickets}</a>`;
+}
+
+function initMakePlayerPage() {
+  const fields = [
+    "make-player-name",
+    "make-player-style",
+    "make-player-bowling-type",
+    "make-player-bowling-hand",
+    "make-player-opener",
+    "make-player-death-bowl",
+    "make-player-team",
+    "target-fielding",
+    "leadership",
+    "target-intent",
+    "target-composure",
+    "target-econ",
+    "target-wkts"
+  ];
+
+  fields.forEach((id) => {
+    const element = document.getElementById(id);
+    if (!element || element.dataset.bound === "true") return;
+    const eventName = element.tagName === "SELECT" || element.type === "text" ? "input" : "input";
+    element.addEventListener(eventName, renderMakePlayerPreview);
+    element.addEventListener("change", renderMakePlayerPreview);
+    element.dataset.bound = "true";
+  });
+
+  const teamSelect = document.getElementById("make-player-team");
+  if (teamSelect && !teamSelect.options.length) {
+    teams.forEach((team) => {
+      teamSelect.add(new Option(`${team.code} • ${team.name}`, team.code));
+    });
+    teamSelect.value = state.homeTeam || teams[0]?.code || "";
+  }
+
+  const addButton = document.getElementById("add-player-to-team");
+  if (addButton && addButton.dataset.bound !== "true") {
+    addButton.addEventListener("click", () => {
+      const status = document.getElementById("make-player-status");
+      const teamCode = document.getElementById("make-player-team")?.value;
+      const preview = buildMakePlayerPreviewData();
+      if (!teamCode) {
+        if (status) status.textContent = "Choose a team before adding the player.";
+        return;
+      }
+      if (!preview.name) {
+        if (status) status.textContent = "Choose a name before adding the player.";
+        return;
+      }
+      if (teams.some((team) => team.players.some((playerData) => playerData.name.toLowerCase() === preview.name.toLowerCase()))) {
+        if (status) status.textContent = `${preview.name} already exists. Choose a unique player name.`;
+        return;
+      }
+
+      addButton.disabled = true;
+      if (status) {
+        status.textContent = `Adding ${preview.name} to ${teamCode}...`;
+      }
+
+      try {
+        const row = createCustomPlayerRow(teamCode);
+        const customRows = loadCustomPlayerRows();
+        customRows.push(row);
+        saveCustomPlayerRows(customRows);
+        addCustomPlayerToRuntime(row);
+        if (status) {
+          status.textContent = `Added ${preview.name} to ${teamCode}. Saved in this browser.`;
+        }
+        renderMakePlayerCustomList();
+        renderAll();
+        renderMakePlayerPreview();
+      } catch (error) {
+        if (status) {
+          status.textContent = `Could not add ${preview.name}. ${error.message}`;
+        }
+      } finally {
+        addButton.disabled = false;
+      }
+    });
+    addButton.dataset.bound = "true";
+  }
+
+  const customList = document.getElementById("make-player-custom-list");
+  if (customList && customList.dataset.bound !== "true") {
+    customList.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-delete-custom-player]");
+      if (!button) {
+        return;
+      }
+      const customId = button.dataset.deleteCustomPlayer;
+      const customRows = loadCustomPlayerRows();
+      const row = customRows.find((entry) => entry.customId === customId);
+      if (!row) {
+        return;
+      }
+      saveCustomPlayerRows(customRows.filter((entry) => entry.customId !== customId));
+      removeCustomPlayerFromRuntime(customId);
+      const status = document.getElementById("make-player-status");
+      if (status) {
+        status.textContent = `Removed ${row.playerName} from ${row.teamCode}.`;
+      }
+      renderMakePlayerCustomList();
+      renderAll();
+    });
+    customList.dataset.bound = "true";
+  }
+
+  renderMakePlayerCustomList();
+  renderMakePlayerPreview();
+}
+
+function renderMakePlayerPreview() {
+  document.querySelectorAll("[data-output-for]").forEach((node) => {
+    const source = document.getElementById(node.dataset.outputFor);
+    if (source) {
+      node.textContent = source.value;
+    }
+  });
+
+  const ratingsContainer = document.getElementById("make-player-ratings");
+  if (ratingsContainer) {
+    const preview = buildMakePlayerPreviewData();
+    const ratings = calculateRatings(preview);
+    const archetype = determinePlayerArchetype({ ...preview, ratings });
+    ratingsContainer.innerHTML = `
+        <article class="top-player-card">
+        <div class="player-header">
+          <div>
+            <p class="eyebrow">PLAYER CARD</p>
+            <h3>${preview.name}</h3>
+          </div>
+          <span class="rating-badge">${ratings.overall}</span>
+        </div>
+          <p class="player-season-line">${archetype}</p>
+          <p class="player-season-line">Fielding ${ratings.fielding} | Leadership ${ratings.leadership}</p>
+          <p class="player-season-line">Bat ${ratings.batting} | Bowl ${ratings.bowling} | AR ${ratings.allRound}</p>
+          <p class="player-season-line">Clutch ${ratings.clutch} | Intent ${ratings.intent} | Composure ${ratings.composure}</p>
+          <p class="player-season-line">Economy ${ratings.econ} | Wicket Taking ${ratings.wkts}</p>
+      </article>
+    `;
+  }
+}
+
+function buildMakePlayerPreviewData() {
+  const targetIntent = Number(document.getElementById("target-intent").value);
+  const targetComposure = Number(document.getElementById("target-composure").value);
+  const targetEcon = Number(document.getElementById("target-econ").value);
+  const targetWkts = Number(document.getElementById("target-wkts").value);
+  const targetFielding = Number(document.getElementById("target-fielding").value);
+  const targetLeadership = Number(document.getElementById("leadership").value);
+  const inferredSourceRole = inferMakePlayerSourceRole({
+    battingStyle: document.getElementById("make-player-style").value,
+    bowlingType: document.getElementById("make-player-bowling-type").value,
+    bowlingHand: document.getElementById("make-player-bowling-hand").value,
+    opener: toBoolean(document.getElementById("make-player-opener").value),
+    deathBowl: toBoolean(document.getElementById("make-player-death-bowl").value),
+    intent: targetIntent,
+    composure: targetComposure,
+    econ: targetEcon,
+    wkts: targetWkts
+  });
+  return player(
+    document.getElementById("make-player-name").value.trim() || "Custom Prospect",
+    inferredSourceRole,
+    document.getElementById("make-player-style").value,
+    targetIntent,
+    targetComposure,
+    targetEcon,
+    targetWkts,
+    document.getElementById("make-player-bowling-type").value,
+    document.getElementById("make-player-bowling-hand").value,
+    toBoolean(document.getElementById("make-player-opener").value),
+    toBoolean(document.getElementById("make-player-death-bowl").value),
+    targetFielding,
+    targetLeadership
+  );
+}
+
+function renderMakePlayerCustomList() {
+  const container = document.getElementById("make-player-custom-list");
+  if (!container) {
+    return;
+  }
+  const customRows = loadCustomPlayerRows();
+  if (!customRows.length) {
+    container.innerHTML = `
+      <div class="scorecard-block">
+        <p class="player-season-line">No custom players added yet. New players will appear here after you add them.</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="custom-player-list">
+      ${customRows.map((row) => `
+        <article class="custom-player-row">
+          <div>
+            <strong>${escapeHtml(row.playerName)}</strong>
+            <p class="player-season-line">${escapeHtml(row.teamCode)} • ${escapeHtml(row.sourceRole)} • ${escapeHtml(row.battingStyle)}</p>
+          </div>
+          <button class="ghost-btn custom-player-delete" type="button" data-delete-custom-player="${escapeHtml(row.customId)}" aria-label="Delete ${escapeHtml(row.playerName)}">
+            <span aria-hidden="true">🗑</span>
+          </button>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function inferMakePlayerSourceRole({ battingStyle, bowlingType, bowlingHand, opener, deathBowl, intent, composure, econ, wkts }) {
+  const bowlingAverage = (econ + wkts) / 2;
+  const battingProxy = composure * 0.55 + intent * 0.45;
+  const qualifiesAsBattingAllRounder = battingProxy >= 60;
+
+  if (bowlingType === "spinner") {
+    if (bowlingAverage >= 72) return wkts >= econ ? "Wrist Spinner" : "Mystery Spinner";
+    if (bowlingAverage >= 52) return intent >= 70 ? "Batting All-Rounder" : "Spin All-Rounder";
+  }
+
+  if (bowlingType === "pacer") {
+    if (deathBowl && bowlingAverage >= 60) return "Death Pacer";
+    if (bowlingHand === "left" && bowlingAverage >= 62) return "Left-Arm Pacer";
+    if (bowlingAverage >= 72) return econ >= wkts ? "Swing Pacer" : "Death Pacer";
+    if (bowlingAverage >= 62) return "Seam Bowler";
+    if (bowlingAverage >= 52) {
+      if (!qualifiesAsBattingAllRounder) return "Seam Bowler";
+      return intent >= 70 ? "Power All-Rounder" : "Seam All-Rounder";
+    }
+  }
+
+  if (bowlingAverage >= 72) {
+    return econ >= wkts ? "Swing Pacer" : "Death Pacer";
+  }
+  if (bowlingAverage >= 62) {
+    return wkts >= econ ? "Leg Spinner" : "Seam Bowler";
+  }
+  if (bowlingAverage >= 52) {
+    if (intent >= 70) return "Power All-Rounder";
+    if (composure >= 70) return "Spin All-Rounder";
+    return "Batting All-Rounder";
+  }
+  if (intent >= 78) return "Finisher";
+  if (composure >= 78) return "Anchor Batter";
+  if (opener) return "Power Opener";
+  if (battingStyle === "LHB" && composure >= 68) return "Top-Order Batter";
+  return "Middle-Order Batter";
+}
+
+function buildSyntheticPlayerStats({ intentTarget, composureTarget, econTarget, wktsTarget }) {
+  const baseStrikeRate = roundToOneDecimal(clamp(78 + intentTarget * 0.96, 95, 176));
+  const baseAverage = roundToOneDecimal(clamp(
+    11 +
+    Math.max(0, composureTarget - 40) * 0.68 -
+    Math.max(0, intentTarget - 40) * 0.06 +
+    Math.max(0, Math.min(composureTarget, intentTarget) - 60) * 0.14,
+    8,
+    58
+  ));
+  const baseRuns = Math.round(clamp(
+    Math.max(5, (baseAverage - 8) * 8.5 + Math.max(0, baseStrikeRate - 115) * 2),
+    5,
+    520
+  ));
+
+  const batting = {
+    runs: [0.7, 0.88, 1].map((factor) => Math.round(baseRuns * factor)),
+    avg: [0.8, 0.92, 1].map((factor) => roundToOneDecimal(baseAverage * factor)),
+    sr: [0.92, 0.98, 1.04].map((factor) => roundToOneDecimal(baseStrikeRate * factor))
+  };
+
+  const bowlingRating = calculateBowlingRatingFromSkills(econTarget ?? 25, wktsTarget ?? 25);
+  const bowling = bowlingRating <= 25
+    ? { wkts: [0, 0, 0], eco: [0, 0, 0], avg: [0, 0, 0] }
+    : {
+        wkts: [0.72, 0.88, 1].map((factor) => Math.round(Math.max(0, (wktsTarget - 20) * 0.42 * factor))),
+        eco: [1.08, 1.02, 0.96].map((factor) => roundToOneDecimal(clamp((11.8 - econTarget * 0.05) * factor, 5.4, 12.5))),
+        avg: [1.08, 1.02, 0.96].map((factor) => roundToOneDecimal(clamp((36 - bowlingRating * 0.2) * factor, 10, 45)))
+      };
+
+  return { batting, bowling };
+}
+
+function roundToOneDecimal(value) {
+  return Math.round(value * 10) / 10;
+}
+
+function renderSeasonStatLeaders() {
+  const container = document.getElementById("season-stat-leaders");
+  if (!container) {
+    return;
+  }
+
+  if (!state.season.playerStats?.length) {
+    container.innerHTML = `<div class="scorecard-block"><p class="player-season-line">Simulate a season to unlock the top-five batting and bowling tables.</p></div>`;
+    return;
+  }
+
+  const leaderboard = getSeasonLeaderboardDefinition(state.seasonStat);
+  const sorted = [...state.season.playerStats]
+    .filter((playerData) => leaderboard.eligible(playerData))
+    .sort(leaderboard.sort)
+    .slice(0, 5);
+
+  if (!sorted.length) {
+    container.innerHTML = `<div class="scorecard-block"><p class="player-season-line">No qualifying performances yet for this stat.</p></div>`;
+    return;
+  }
+
+  container.innerHTML = sorted.map((playerData, index) => `
+    <article class="season-stat-row">
+      <div class="season-stat-rank">${index + 1}</div>
+      <div class="season-stat-player">
+        <strong>${playerData.name}</strong>
+        <span>${playerData.teamCode} | ${playerData.role}</span>
+      </div>
+      <div class="season-stat-value">
+        <strong>${leaderboard.value(playerData)}</strong>
+        <span>${leaderboard.secondary(playerData)}</span>
+      </div>
+    </article>
+  `).join("");
+}
+
+function getSeasonLeaderboardDefinition(key) {
+  const thresholds = getRollingLeaderboardThresholds();
+  const definitions = {
+    runs: {
+      eligible: () => true,
+      sort: (a, b) => b.seasonRuns - a.seasonRuns || b.seasonStrikeRate - a.seasonStrikeRate,
+      value: (playerData) => `${playerData.seasonRuns} runs`,
+      secondary: (playerData) => `Avg ${playerData.seasonBattingAverage.toFixed(1)} | SR ${playerData.seasonStrikeRate.toFixed(1)}`
+    },
+    wickets: {
+      eligible: () => true,
+      sort: (a, b) => b.seasonWickets - a.seasonWickets || a.seasonEconomy - b.seasonEconomy,
+      value: (playerData) => `${Math.round(playerData.seasonWickets)} wickets`,
+      secondary: (playerData) => `Econ ${playerData.seasonEconomy.toFixed(2)} | Avg ${playerData.seasonBowlingAverage.toFixed(1)}`
+    },
+    highestScore: {
+      eligible: (playerData) => playerData.highestScore > 0,
+      sort: (a, b) => b.highestScore - a.highestScore || a.highestScoreBalls - b.highestScoreBalls || b.seasonRuns - a.seasonRuns,
+      value: (playerData) => `${playerData.highestScore}${playerData.highestScoreNotOut ? "*" : ""}`,
+      secondary: (playerData) => `${playerData.highestScoreBalls} balls | SR ${playerData.highestScoreBalls > 0 ? ((playerData.highestScore / playerData.highestScoreBalls) * 100).toFixed(1) : "0.0"}`
+    },
+    bestBowlingFigures: {
+      eligible: (playerData) => playerData.bestBowlingWickets > 0,
+      sort: (a, b) => b.bestBowlingWickets - a.bestBowlingWickets || a.bestBowlingEconomy - b.bestBowlingEconomy || a.bestBowlingRuns - b.bestBowlingRuns,
+      value: (playerData) => `${playerData.bestBowlingWickets}/${playerData.bestBowlingRuns}`,
+      secondary: (playerData) => `${formatOversFromBalls(playerData.bestBowlingOversBalls)} overs | Econ ${playerData.bestBowlingEconomy.toFixed(2)}`
+    },
+    battingAverage: {
+    eligible: (playerData) => playerData.seasonRuns >= thresholds.battingAverageRuns && playerData.seasonDismissals >= thresholds.battingAverageDismissals,
+      sort: (a, b) => b.seasonBattingAverage - a.seasonBattingAverage || b.seasonRuns - a.seasonRuns,
+      value: (playerData) => playerData.seasonBattingAverage.toFixed(2),
+      secondary: (playerData) => `${playerData.seasonRuns} runs | ${playerData.seasonDismissals} dismissals`
+    },
+    strikeRate: {
+      eligible: (playerData) => playerData.seasonRuns >= thresholds.strikeRateRuns && playerData.seasonBallsFaced >= thresholds.strikeRateBalls,
+      sort: (a, b) => b.seasonStrikeRate - a.seasonStrikeRate || b.seasonRuns - a.seasonRuns,
+      value: (playerData) => playerData.seasonStrikeRate.toFixed(2),
+      secondary: (playerData) => `${playerData.seasonRuns} runs | ${playerData.seasonBallsFaced} balls`
+    },
+    economy: {
+      eligible: (playerData) => playerData.seasonOversBalls >= thresholds.economyBalls,
+      sort: (a, b) => a.seasonEconomy - b.seasonEconomy || b.seasonWickets - a.seasonWickets,
+      value: (playerData) => playerData.seasonEconomy.toFixed(2),
+      secondary: (playerData) => `${formatOversFromBalls(playerData.seasonOversBalls)} overs | ${Math.round(playerData.seasonWickets)} wickets`
+    },
+    bowlingAverage: {
+      eligible: (playerData) => playerData.seasonWickets >= thresholds.bowlingAverageWickets,
+      sort: (a, b) => a.seasonBowlingAverage - b.seasonBowlingAverage || b.seasonWickets - a.seasonWickets,
+      value: (playerData) => playerData.seasonBowlingAverage.toFixed(2),
+      secondary: (playerData) => `${Math.round(playerData.seasonWickets)} wickets | Econ ${playerData.seasonEconomy.toFixed(2)}`
+    },
+    sixes: {
+      eligible: (playerData) => playerData.seasonSixes > 0,
+      sort: (a, b) => b.seasonSixes - a.seasonSixes || b.seasonRuns - a.seasonRuns,
+      value: (playerData) => `${playerData.seasonSixes} sixes`,
+      secondary: (playerData) => `${playerData.seasonFours} fours | SR ${playerData.seasonStrikeRate.toFixed(1)}`
+    },
+    impact: {
+      eligible: () => true,
+      sort: (a, b) => b.mvpScore - a.mvpScore || b.seasonRuns - a.seasonRuns,
+      value: (playerData) => `${playerData.mvpScore} impact`,
+      secondary: (playerData) => `${playerData.seasonRuns} runs | ${playerData.seasonWickets} wickets`
+    }
+  };
+
+  return definitions[key] || definitions.runs;
+}
+
+function getRollingLeaderboardThresholds() {
+  const totalWeeks = state.season?.schedule?.length || 18;
+  const completedWeeks = clamp(state.season?.currentRound || 0, 0, totalWeeks);
+  const progress = totalWeeks > 0 ? Math.max(1 / totalWeeks, completedWeeks / totalWeeks) : 1;
+  const scaled = (fullSeasonValue, minimumValue = 1) => Math.max(minimumValue, Math.ceil(fullSeasonValue * progress));
+
+  return {
+    battingAverageRuns: scaled(300, 20),
+    battingAverageDismissals: scaled(10, 1),
+    strikeRateRuns: scaled(150, 15),
+    strikeRateBalls: scaled(90, 12),
+    economyBalls: scaled(60, 6),
+    bowlingAverageWickets: scaled(6, 1)
+  };
+}
+
+function createSeasonPlayerSnapshot(playerData, teamCode) {
+  ensurePlayerRuntimeState(playerData);
+  const overallRating = playerData?.ratings?.overall ?? 50;
+  const snapshot = {
+    ...playerData,
+    teamCode,
+    matchesPlayed: 0,
+    seasonRuns: 0,
+    seasonWickets: 0,
+    seasonBallsFaced: 0,
+    seasonDismissals: 0,
+    seasonRunsConceded: 0,
+    seasonOversBalls: 0,
+    seasonFours: 0,
+    seasonSixes: 0,
+    seasonCatches: Math.max(0, Math.round((overallRating - 50) / 14)),
+    mvpScore: 0,
+    impactAppearances: 0,
+    highestScore: 0,
+    highestScoreBalls: 0,
+    highestScoreNotOut: false,
+    bestBowlingWickets: 0,
+    bestBowlingRuns: 999,
+    bestBowlingOversBalls: 0,
+    bestBowlingEconomy: 99,
+    seasonStrikeRate: 0,
+    seasonBattingAverage: 0,
+    seasonEconomy: 99,
+    seasonBowlingAverage: 999
+  };
+
+  hydrateSeasonRateStats(snapshot);
+  return snapshot;
+}
+
+function hydrateSeasonRateStats(playerData) {
+  playerData.seasonStrikeRate = playerData.seasonBallsFaced > 0 ? (playerData.seasonRuns / playerData.seasonBallsFaced) * 100 : 0;
+  playerData.seasonBattingAverage = playerData.seasonDismissals > 0 ? playerData.seasonRuns / playerData.seasonDismissals : playerData.seasonRuns;
+  playerData.seasonEconomy = playerData.seasonOversBalls > 0 ? playerData.seasonRunsConceded / (playerData.seasonOversBalls / 6) : 99;
+  playerData.seasonBowlingAverage = playerData.seasonWickets > 0 ? playerData.seasonRunsConceded / playerData.seasonWickets : 999;
+}
+
+function resetSeason() {
+  return {
+    table: teams.map((team) => ({ team, wins: 0, losses: 0, points: 0, netRunRate: 0 })),
+    schedule: buildSeasonSchedule(),
+    currentRound: 0,
+    playoffs: null,
+    champion: null,
+    featuredMatches: [],
+    playerStats: teams.flatMap((team) => team.players.map((playerData) => createSeasonPlayerSnapshot(playerData, team.code))),
+    awards: { bestBatter: null, bestBowler: null, mvp: null, impactPlayer: null }
+  };
+}
+
+function weightedAverage(values, weights, ignoreZeros = false) {
+  let total = 0;
+  let weightTotal = 0;
+  values.forEach((value, index) => {
+    if (ignoreZeros && !value) return;
+    total += value * weights[index];
+    weightTotal += weights[index];
+  });
+  return weightTotal ? total / weightTotal : 0;
+}
+
+function average(values) {
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function getLogScaledContribution(value, minInput, maxInput, maxContribution, curveFactor = Math.E - 1) {
+  const clampedValue = clamp(value, minInput, maxInput);
+  const normalized = (clampedValue - minInput) / Math.max(1, maxInput - minInput);
+  return (Math.log1p(normalized * curveFactor) / Math.log1p(curveFactor)) * maxContribution;
+}
+
+function calculateBowlingRatingFromSkills(econ, wkts) {
+  const weightedBase = econ * 0.45 + wkts * 0.55;
+  const eliteCurveBonus = Math.max(0, weightedBase - 60) ** 1.5 * 0.0975;
+  return clamp(weightedBase + eliteCurveBonus, 25, 99);
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function findTeam(code) {
+  return teams.find((team) => team.code === code);
+}
+
+function nextTeamCode(current) {
+  const index = teams.findIndex((team) => team.code === current);
+  return teams[(index + 1) % teams.length].code;
+}
+
+function buildSeasonSchedule() {
+  if (teams.length < 2) {
+    return [];
+  }
+
+  const rotation = teams.map((team) => team.code);
+  const firstLeg = [];
+
+  for (let roundIndex = 0; roundIndex < rotation.length - 1; roundIndex += 1) {
+    const fixtures = [];
+    for (let slotIndex = 0; slotIndex < rotation.length / 2; slotIndex += 1) {
+      const left = rotation[slotIndex];
+      const right = rotation[rotation.length - 1 - slotIndex];
+      fixtures.push({
+        homeCode: roundIndex % 2 === 0 ? left : right,
+        awayCode: roundIndex % 2 === 0 ? right : left,
+        played: false,
+        result: null
+      });
+    }
+    firstLeg.push(fixtures);
+    rotation.splice(1, 0, rotation.pop());
+  }
+
+  return [...firstLeg, ...firstLeg.map((fixtures) => fixtures.map((fixture) => ({
+    homeCode: fixture.awayCode,
+    awayCode: fixture.homeCode,
+    played: false,
+    result: null
+  })))].map((fixtures, index) => ({
+    label: `WEEK ${index + 1}`,
+    fixtures
+  }));
+}
+
+function getNextFixtureForTeam(teamCode) {
+  const schedule = state.season?.schedule || [];
+  for (let roundIndex = state.season?.currentRound || 0; roundIndex < schedule.length; roundIndex += 1) {
+    const fixtureIndex = schedule[roundIndex].fixtures.findIndex((fixture) =>
+      !fixture.played && (fixture.homeCode === teamCode || fixture.awayCode === teamCode)
+    );
+    if (fixtureIndex !== -1) {
+      return {
+        ...schedule[roundIndex].fixtures[fixtureIndex],
+        roundIndex,
+        label: schedule[roundIndex].label,
+        slot: fixtureIndex + 1
+      };
+    }
+  }
+  return null;
+}
+
+function initializePlayoffs(season = state.season) {
+  if (!season || season.playoffs || season.currentRound < season.schedule.length) {
+    return season?.playoffs || null;
+  }
+
+  const ordered = [...season.table].sort((a, b) => b.points - a.points || b.netRunRate - a.netRunRate);
+  season.playoffs = {
+    seedOrder: ordered.slice(0, 4).map((entry) => entry.team.code),
+    results: {
+      qualifier1: null,
+      eliminator: null,
+      qualifier2: null,
+      final: null
+    }
+  };
+  return season.playoffs;
+}
+
+function getCurrentPlayoffFixture(season = state.season) {
+  const playoffs = initializePlayoffs(season);
+  if (!playoffs?.seedOrder?.length) {
+    return null;
+  }
+
+  if (!playoffs.results.qualifier1) {
+    return {
+      key: "qualifier1",
+      label: "Qualifier 1",
+      homeCode: playoffs.seedOrder[0],
+      awayCode: playoffs.seedOrder[1]
+    };
+  }
+
+  if (!playoffs.results.eliminator) {
+    return {
+      key: "eliminator",
+      label: "Eliminator",
+      homeCode: playoffs.seedOrder[2],
+      awayCode: playoffs.seedOrder[3]
+    };
+  }
+
+  if (!playoffs.results.qualifier2) {
+    const qualifier1Loser = playoffs.results.qualifier1.winner.code === playoffs.seedOrder[0] ? playoffs.seedOrder[1] : playoffs.seedOrder[0];
+    return {
+      key: "qualifier2",
+      label: "Qualifier 2",
+      homeCode: qualifier1Loser,
+      awayCode: playoffs.results.eliminator.winner.code
+    };
+  }
+
+  if (!playoffs.results.final) {
+    return {
+      key: "final",
+      label: "Final",
+      homeCode: playoffs.results.qualifier1.winner.code,
+      awayCode: playoffs.results.qualifier2.winner.code
+    };
+  }
+
+  return null;
+}
+
+function playOrReplayPlayoffFixture(season, key) {
+  initializePlayoffs(season);
+  if (season.playoffs.results[key]) {
+    return season.playoffs.results[key];
+  }
+
+  const fixture = getCurrentPlayoffFixture(season);
+  if (!fixture || fixture.key !== key) {
+    return null;
+  }
+
+  const result = resolveKnockoutResult(
+    simulateMatch(
+      buildLineupTeam(findTeam(fixture.homeCode)),
+      buildLineupTeam(findTeam(fixture.awayCode))
+    )
+  );
+  season.playoffs.results[key] = result;
+  updatePlayers(season.playerStats, result);
+  if (key === "final") {
+    season.champion = result.winner;
+  }
+  return result;
+}
+
+function isFranchisePlayoffEligible() {
+  const playoffs = initializePlayoffs(state.season);
+  return Boolean(playoffs?.seedOrder?.includes(state.franchiseTeam));
+}
+
+function getFranchisePlayoffFixture() {
+  const fixture = getCurrentPlayoffFixture();
+  if (!fixture || !isFranchisePlayoffEligible()) {
+    return null;
+  }
+  if (fixture.homeCode === state.franchiseTeam || fixture.awayCode === state.franchiseTeam) {
+    return fixture;
+  }
+  return null;
+}
+
+function syncFeaturedMatchToSeason() {
+  const nextFixture = getNextFixtureForTeam(state.franchiseTeam);
+  if (!nextFixture) {
+    state.homeTeam = state.franchiseTeam;
+    return;
+  }
+  state.homeTeam = nextFixture.homeCode;
+  state.awayTeam = nextFixture.awayCode;
+  state.opponentTeam = nextFixture.homeCode === state.franchiseTeam ? nextFixture.awayCode : nextFixture.homeCode;
+}
+
+function calculateSeasonAwards(playerBook) {
+  if (!playerBook?.length || !playerBook.some((playerData) => playerData.matchesPlayed > 0)) {
+    return { bestBatter: null, bestBowler: null, mvp: null, impactPlayer: null };
+  }
+
+  const impactEligiblePlayers = playerBook.filter((playerData) =>
+    playerData.matchesPlayed > 0 &&
+    playerData.impactAppearances / playerData.matchesPlayed >= 0.75
+  );
+
+  return {
+    bestBatter: [...playerBook].sort((a, b) => b.seasonRuns - a.seasonRuns || b.seasonStrikeRate - a.seasonStrikeRate)[0],
+    bestBowler: [...playerBook].sort((a, b) => b.seasonWickets - a.seasonWickets || a.seasonEconomy - b.seasonEconomy)[0],
+    mvp: [...playerBook].sort((a, b) => b.mvpScore - a.mvpScore || b.seasonRuns - a.seasonRuns)[0],
+    impactPlayer: impactEligiblePlayers.length
+      ? [...impactEligiblePlayers].sort((a, b) => b.mvpScore - a.mvpScore || b.impactAppearances - a.impactAppearances || b.seasonRuns - a.seasonRuns)[0]
+      : null
+  };
+}
+
+function renderTickerResultMarkup(result) {
+  const homeClass = result.isTie ? "ticker-team is-tie" : result.winner?.code === result.home.code ? "ticker-team is-win" : "ticker-team is-loss";
+  const awayClass = result.isTie ? "ticker-team is-tie" : result.winner?.code === result.away.code ? "ticker-team is-win" : "ticker-team is-loss";
+  return `<span class="${homeClass}">${escapeHtml(result.home.code)} ${result.homeScore}-${result.homeWkts}</span> <span class="ticker-vs">vs</span> <span class="${awayClass}">${escapeHtml(result.away.code)} ${result.awayScore}-${result.awayWkts}</span>`;
+}
+
+function formatMatchMvp(result) {
+  const name = result?.mvp || "Unknown";
+  const teamCode = result?.mvpBreakdown?.teamCode;
+  return teamCode ? `${name} (${teamCode})` : name;
+}
+
+function renderUpcomingTickerMarkup(fixture) {
+  return `<span class="ticker-team is-upcoming">${escapeHtml(fixture.homeCode)}</span> <span class="ticker-vs">vs</span> <span class="ticker-team is-upcoming">${escapeHtml(fixture.awayCode)}</span>`;
+}
+
+function getUpcomingTickerWeek() {
+  const schedule = state.season?.schedule || [];
+  const currentRound = state.season?.currentRound || 0;
+  const week = schedule[currentRound];
+  if (!week?.fixtures?.length) {
+    return null;
+  }
+
+  return {
+    label: week.label,
+    fixtures: week.fixtures.filter((fixture) => !fixture.played)
+  };
+}
+
+function getFeaturedRoundResult(roundResults) {
+  return roundResults.find((result) => result.home.code === state.franchiseTeam || result.away.code === state.franchiseTeam) || roundResults[0] || null;
+}
+
+function renderFeaturedResultMessage(message) {
+  document.getElementById("featured-result").innerHTML = `<p>${message}</p>`;
+}
+
+function maybeLaunchChampionshipConfetti() {
+  const championCode = state.season?.champion?.code;
+  if (!championCode || championCode !== state.franchiseTeam || state.lastCelebratedChampion === championCode) {
+    return;
+  }
+
+  state.lastCelebratedChampion = championCode;
+  launchChampionshipConfetti();
+}
+
+function maybeLaunchSeasonLossEmojis() {
+  const championCode = state.season?.champion?.code;
+  if (!championCode || championCode === state.franchiseTeam || state.lastSeasonLossChampion === championCode) {
+    return;
+  }
+
+  state.lastSeasonLossChampion = championCode;
+  launchSeasonLossEmojis();
+}
+
+function maybeLaunchTournamentMvpEmojis() {
+  const tournamentMvp = state.season?.awards?.mvp;
+  if (!state.season?.champion || !tournamentMvp?.teamCode || tournamentMvp.teamCode !== state.franchiseTeam) {
+    return false;
+  }
+
+  const celebrationKey = `${tournamentMvp.teamCode}::${tournamentMvp.name}`;
+  if (state.lastCelebratedTournamentMvp === celebrationKey) {
+    return false;
+  }
+
+  state.lastCelebratedTournamentMvp = celebrationKey;
+  launchFranchiseMvpEmojis();
+  return true;
+}
+
+function maybeLaunchGameOutcomeSymbols(result) {
+  if (!result || result.isTie || !result.winner?.code) {
+    return;
+  }
+
+  launchGameOutcomeSymbols(result.winner.code === state.franchiseTeam);
+}
+
+function launchChampionshipConfetti() {
+  const layer = document.getElementById("confetti-layer");
+  if (!layer) {
+    return;
+  }
+
+  const batch = createCelebrationBatch(layer);
+  const colors = ["#f5c451", "#5ce1e6", "#81ffb1", "#ff8e8e", "#ecf4ff", "#ffd86f"];
+  const pieces = 180;
+
+  for (let index = 0; index < pieces; index += 1) {
+    const piece = document.createElement("span");
+    piece.className = "confetti-piece";
+    piece.style.left = `${Math.random() * 100}%`;
+    piece.style.background = colors[index % colors.length];
+    piece.style.width = `${8 + Math.random() * 8}px`;
+    piece.style.height = `${14 + Math.random() * 16}px`;
+    piece.style.animationDelay = `${Math.random() * 280}ms`;
+    piece.style.setProperty("--duration", `${1900 + Math.random() * 1800}ms`);
+    piece.style.setProperty("--drift-x", `${-180 + Math.random() * 360}px`);
+    piece.style.setProperty("--spin", `${360 + Math.random() * 1080}deg`);
+    batch.appendChild(piece);
+  }
+
+  window.setTimeout(() => {
+    batch.remove();
+  }, 4300);
+}
+
+function launchSeasonLossEmojis() {
+  const layer = document.getElementById("confetti-layer");
+  if (!layer) {
+    return;
+  }
+
+  const batch = createCelebrationBatch(layer);
+  const pieces = 120;
+  const symbols = ["❌", "👎"];
+
+  for (let index = 0; index < pieces; index += 1) {
+    const symbol = symbols[index % symbols.length];
+    const piece = document.createElement("span");
+    piece.className = "confetti-piece loss-piece";
+    piece.textContent = symbol;
+    piece.style.left = `${Math.random() * 100}%`;
+    piece.style.animationDelay = `${Math.random() * 320}ms`;
+    piece.style.setProperty("--duration", `${2600 + Math.random() * 1800}ms`);
+    piece.style.setProperty("--drift-x", `${-140 + Math.random() * 280}px`);
+    piece.style.setProperty("--spin", symbol === "👎" ? "0deg" : `${180 + Math.random() * 480}deg`);
+    batch.appendChild(piece);
+  }
+
+  window.setTimeout(() => {
+    batch.remove();
+  }, 5200);
+}
+
+function launchFranchiseMvpEmojis() {
+  const layer = document.getElementById("mvp-layer");
+  if (!layer) {
+    return;
+  }
+
+  const batch = createCelebrationBatch(layer);
+  const pieces = 64;
+  const symbols = ["🏅", "🏅", "🏅"];
+
+  for (let index = 0; index < pieces; index += 1) {
+    const symbol = symbols[index % symbols.length];
+    const piece = document.createElement("span");
+    piece.className = "confetti-piece mvp-piece";
+    piece.textContent = symbol;
+    piece.style.left = `${Math.random() * 100}%`;
+    piece.style.animationDelay = `${Math.random() * 220}ms`;
+    piece.style.setProperty("--duration", `${2200 + Math.random() * 1200}ms`);
+    piece.style.setProperty("--drift-x", `${-120 + Math.random() * 240}px`);
+    piece.style.setProperty("--spin", symbol === "MVP" ? "0deg" : `${180 + Math.random() * 420}deg`);
+    batch.appendChild(piece);
+  }
+
+  window.setTimeout(() => {
+    batch.remove();
+  }, 4200);
+}
+
+function launchGameOutcomeSymbols(isWin) {
+  launchOutcomeSymbolBurst({
+    isWin,
+    pieces: 18,
+    symbol: isWin ? "\u2705" : "\u274C",
+    durationMin: 1800,
+    durationRange: 900,
+    horizontalInset: 12,
+    driftRange: 180,
+    delayRange: 160
+  });
+}
+
+function launchOutcomeSymbolBurst({
+  isWin,
+  pieces,
+  symbol,
+  durationMin,
+  durationRange,
+  horizontalInset,
+  driftRange,
+  delayRange
+}) {
+  const layer = document.getElementById("confetti-layer");
+  if (!layer) {
+    return;
+  }
+
+  const batch = createCelebrationBatch(layer);
+  const className = isWin ? "confetti-piece game-win-piece" : "confetti-piece game-loss-piece";
+
+  for (let index = 0; index < pieces; index += 1) {
+    const piece = document.createElement("span");
+    piece.className = className;
+    piece.textContent = symbol;
+    piece.style.left = `${horizontalInset + Math.random() * (100 - horizontalInset * 2)}%`;
+    piece.style.animationDelay = `${Math.random() * delayRange}ms`;
+    piece.style.setProperty("--duration", `${durationMin + Math.random() * durationRange}ms`);
+    piece.style.setProperty("--drift-x", `${-(driftRange / 2) + Math.random() * driftRange}px`);
+    piece.style.setProperty("--spin", "0deg");
+    batch.appendChild(piece);
+  }
+
+  window.setTimeout(() => {
+    batch.remove();
+  }, durationMin + durationRange + delayRange + 400);
+}
+
+function createCelebrationBatch(layer) {
+  const batch = document.createElement("div");
+  batch.className = "confetti-batch";
+  layer.appendChild(batch);
+  return batch;
+}
+
+function randomBetween(min, max) {
+  return Math.random() * (max - min) + min;
+}
+
+function normalizeShares(values) {
+  const total = values.reduce((sum, value) => sum + value, 0);
+  return values.map((value) => value / total);
+}
+
+function roundDownToOver(balls) {
+  return Math.max(6, Math.floor(balls / 6) * 6);
+}
+
+function formatOversFromBalls(balls) {
+  const overs = Math.floor(balls / 6);
+  const remainder = balls % 6;
+  return `${overs}.${remainder}`;
+}
+
+function oversToBalls(overs) {
+  const [whole, part] = String(overs).split(".");
+  return Number(whole) * 6 + Number(part || 0);
+}
+
+function inferPlayerProfile(playerData) {
+  const matchupTypes = ["leftArmPace", "rightArmPace", "hitTheDeck", "leftArmOrthodox", "rightArmOffSpin", "wristSpin"];
+  const roleProfile = playerData.roleProfile || inferRoleProfile(playerData);
+  const hash = stableHash(`${playerData.name}-${roleProfile.label}-${playerData.battingStyle}`);
+  const preferred = [];
+  const vulnerable = [];
+
+  if (roleProfile.power || roleProfile.finisher) preferred.push("leftArmPace", "hitTheDeck");
+  if (roleProfile.anchor || roleProfile.opener) preferred.push("rightArmPace");
+  if (roleProfile.opener) preferred.push(playerData.battingStyle === "LHB" ? "rightArmOffSpin" : "leftArmOrthodox");
+  if (roleProfile.battingBand === "middle") preferred.push("wristSpin");
+
+  if (roleProfile.anchor) vulnerable.push("wristSpin");
+  if (roleProfile.power) vulnerable.push(playerData.battingStyle === "LHB" ? "leftArmOrthodox" : "rightArmOffSpin");
+  if (roleProfile.finisher) vulnerable.push("leftArmPace");
+  if (roleProfile.battingBand === "middle" && !roleProfile.power) vulnerable.push("hitTheDeck");
+
+  const rotatedTypes = matchupTypes.map((_, index) => matchupTypes[(index + (hash % matchupTypes.length)) % matchupTypes.length]);
+  rotatedTypes.forEach((type) => {
+    if (preferred.length < 2 && !preferred.includes(type) && !vulnerable.includes(type)) preferred.push(type);
+    if (vulnerable.length < 2 && !vulnerable.includes(type) && !preferred.includes(type)) vulnerable.push(type);
+  });
+
+  const bowlingPreferences = inferBowlingPreferences(playerData);
+
+  return {
+    strengths: preferred.slice(0, 2),
+    weaknesses: vulnerable.slice(0, 2),
+    bowlingStrengths: bowlingPreferences.strengths,
+    bowlingWeaknesses: bowlingPreferences.weaknesses,
+    pitchBias: roleProfile.pitchBias
+  };
+}
+
+function buildAttackProfile(players) {
+  const bowlers = players
+    .filter((playerData) => playerData.ratings?.bowling >= 40 || isBowler(playerData) || isAllRounder(playerData))
+    .sort((a, b) => b.ratings.bowling - a.ratings.bowling)
+    .slice(0, 6);
+  const types = {
+    leftArmPace: 0,
+    rightArmPace: 0,
+    hitTheDeck: 0,
+    leftArmOrthodox: 0,
+    rightArmOffSpin: 0,
+    wristSpin: 0
+  };
+
+  bowlers.forEach((playerData, index) => {
+    const weight = Math.max(0.15, playerData.ratings.bowling / 100 - index * 0.04);
+    getBowlingTypes(playerData).forEach((type) => {
+      types[type] += weight / getBowlingTypes(playerData).length;
+    });
+  });
+
+  const total = Object.values(types).reduce((sum, value) => sum + value, 0) || 1;
+  Object.keys(types).forEach((type) => {
+    types[type] /= total;
+  });
+
+  return types;
+}
+
+function getBowlingTypes(playerData) {
+  return (playerData.roleProfile || inferRoleProfile(playerData)).bowlingTypes;
+}
+
+function determinePlayerArchetype(playerData) {
+  return inferRoleProfile(playerData).label;
+}
+
+function getBowlingStyleFamily(playerData) {
+  return (playerData.roleProfile || inferRoleProfile(playerData)).bowlingFamily;
+}
+
+function inferRoleProfile(playerData) {
+  const ratings = playerData.ratings || calculateRatings(playerData);
+  const battingEdge = ratings.batting - ratings.bowling;
+  const bowlingEdge = ratings.bowling - ratings.batting;
+  const hasRealBowling = ratings.bowling >= 52 || ratings.econ >= 45 || ratings.wkts >= 45;
+  const qualifiesAsAllRounder = ratings.batting > 60 && ratings.bowling > 35;
+  const bowlingTypes = inferBowlingTypesFromStats(playerData, ratings, hasRealBowling);
+  const bowlingFamily = playerData.bowlingType === "spinner" ? "spin" :
+    playerData.bowlingType === "pacer" ? "pace" :
+      bowlingTypes.some((type) => type.includes("Spin") || type.includes("Orthodox")) ? "spin" :
+        bowlingTypes.length ? "pace" : "none";
+  const roleGroup = qualifiesAsAllRounder ? "allRounder" :
+    hasRealBowling && ratings.bowling >= 60 && (bowlingEdge >= 6 || ratings.batting <= 55) ? "bowler" :
+      "batter";
+  const explicitOpener = Boolean(playerData.opener);
+  const explicitDeathBowler = Boolean(playerData.deathBowl);
+  const opener = explicitOpener;
+  const anchor = ratings.composure >= 72 && ratings.intent <= 78;
+  const power = ratings.intent >= 69;
+  const finisher = ratings.intent >= 76 && ratings.composure <= 72;
+  const battingBand = finisher ? "finish" : opener ? "top" : ratings.batting >= 66 ? "middle" : "support";
+  const pitchBias = bowlingFamily === "spin" || anchor ? "slow" :
+    power || finisher || bowlingTypes.includes("hitTheDeck") ? "flat" : "balanced";
+
+  let label = "Utility Batter";
+  if (roleGroup === "bowler") {
+    if (bowlingFamily === "spin") {
+      label = "Attack Spinner";
+    } else {
+      label = ratings.econ >= ratings.wkts ? "New-Ball Seamer" : "Pace Enforcer";
+    }
+  } else if (roleGroup === "allRounder") {
+    if (bowlingFamily === "spin" || (ratings.composure >= 72 && ratings.econ >= ratings.wkts)) {
+      label = "Control All-Rounder";
+    } else if (power && ratings.batting >= 68) {
+      label = "Power All-Round Force";
+    } else if (bowlingFamily === "pace" && ratings.bowling >= 60) {
+      label = "Seam All-Round Engine";
+    } else {
+      label = "Batting All-Round Link";
+    }
+  } else if (opener && power && !anchor) {
+    label = "Explosive Opener";
+  } else if (opener && anchor) {
+    label = "Technical Opener";
+  } else if (finisher && ratings.batting >= 68) {
+    label = "Finishing Closer";
+  } else if (anchor && ratings.composure >= 80) {
+    label = "Run Bank Anchor";
+  } else if (ratings.batting >= 70 && power) {
+    label = "Shotmaker";
+  } else if (anchor) {
+    label = "Run Bank Anchor";
+  } else if (power) {
+    label = "Boundary Hunter";
+  } else {
+    label = ratings.batting >= 66 ? "Shotmaker" : "Utility Batter";
+  }
+
+  return {
+    label,
+    roleGroup,
+    battingBand,
+    opener,
+    anchor,
+    power,
+    finisher,
+    deathBowler: explicitDeathBowler || (roleGroup !== "batter" && ratings.wkts >= ratings.econ + 6 && bowlingFamily === "pace"),
+    bowlingFamily,
+    bowlingTypes,
+    pitchBias
+  };
+}
+
+function inferBowlingTypesFromStats(playerData, ratings, hasRealBowling) {
+  if (!hasRealBowling) return [];
+
+  const wicketBias = ratings.wkts - ratings.econ;
+  const controlBias = ratings.econ - ratings.wkts;
+  const spinLean = ratings.composure + Math.max(0, ratings.econ - 55) * 0.3;
+  const paceLean = ratings.intent + Math.max(0, ratings.wkts - 55) * 0.35 + Math.max(0, ratings.bowling - 60) * 0.14;
+  const hash = stableHash(`${playerData.name}-${playerData.battingStyle}-${ratings.bowling}-${ratings.econ}-${ratings.wkts}`);
+  const bowlingType = playerData.bowlingType || "none";
+  const bowlingHand = playerData.bowlingHand || "none";
+
+  if (bowlingType === "spinner") {
+    if (wicketBias >= 5) return ["wristSpin"];
+    return [bowlingHand === "left" ? "leftArmOrthodox" : "rightArmOffSpin"];
+  }
+
+  if (bowlingType === "pacer") {
+    if (bowlingHand === "left") return ["leftArmPace"];
+    if (wicketBias >= 7) return ["hitTheDeck", "rightArmPace"];
+    return ["rightArmPace"];
+  }
+
+  if (ratings.bowling >= 68 && wicketBias >= 8) {
+    return ["hitTheDeck", "rightArmPace"];
+  }
+
+  if (spinLean >= paceLean + 10) {
+    if (wicketBias >= 6) return ["wristSpin"];
+    return [hash % 2 === 0 ? "leftArmOrthodox" : "rightArmOffSpin"];
+  }
+
+  if (paceLean >= spinLean + 8) {
+    if (wicketBias >= 8) return ["hitTheDeck", "rightArmPace"];
+    if (controlBias >= 6 && hash % 3 === 0) return ["leftArmPace"];
+    return ["rightArmPace"];
+  }
+
+  if (controlBias >= 7 && ratings.composure >= 58) {
+    return hash % 2 === 0 ? ["leftArmOrthodox"] : ["rightArmOffSpin"];
+  }
+
+  if (wicketBias >= 7) {
+    return hash % 2 === 0 ? ["hitTheDeck", "rightArmPace"] : ["wristSpin"];
+  }
+
+  if (bowlingHand === "left") return ["leftArmPace"];
+  return hash % 2 === 0 ? ["rightArmPace"] : ["rightArmOffSpin"];
+}
+
+function getPitchProfile(homeTeam) {
+  const profiles = {
+    CSK: { label: "Slow Turn", scoringBoost: -8, wicketPressure: 0.6, chaseBias: -0.08, volatility: 0.32, boosts: ["leftArmOrthodox", "wristSpin"] },
+    MI: { label: "Flat with Dew", scoringBoost: 14, wicketPressure: -0.45, chaseBias: 0.35, volatility: 0.62, boosts: ["leftArmPace", "rightArmPace"] },
+    RCB: { label: "Small Ground Launchpad", scoringBoost: 16, wicketPressure: -0.3, chaseBias: 0.18, volatility: 0.68, boosts: ["hitTheDeck"] },
+    KKR: { label: "Grip Then Skid", scoringBoost: 2, wicketPressure: 0.18, chaseBias: 0.05, volatility: 0.46, boosts: ["wristSpin", "rightArmPace"] },
+    SRH: { label: "True Batting Strip", scoringBoost: 18, wicketPressure: -0.52, chaseBias: 0.28, volatility: 0.7, boosts: ["rightArmPace"] },
+    RR: { label: "Balanced Surface", scoringBoost: 4, wicketPressure: 0.04, chaseBias: 0.1, volatility: 0.42, boosts: ["leftArmPace", "wristSpin"] },
+    GT: { label: "Two-Paced Surface", scoringBoost: -1, wicketPressure: 0.16, chaseBias: -0.02, volatility: 0.38, boosts: ["hitTheDeck", "leftArmOrthodox"] },
+    DC: { label: "Pace Early, Better Later", scoringBoost: 3, wicketPressure: 0.15, chaseBias: 0.14, volatility: 0.44, boosts: ["rightArmPace", "hitTheDeck"] },
+    LSG: { label: "Slow and Grippy", scoringBoost: -10, wicketPressure: 0.72, chaseBias: -0.1, volatility: 0.34, boosts: ["leftArmOrthodox", "rightArmOffSpin"] },
+    PBKS: { label: "Dewy Hitting Surface", scoringBoost: 12, wicketPressure: -0.2, chaseBias: 0.26, volatility: 0.6, boosts: ["leftArmPace"] }
+  };
+  return profiles[homeTeam.code] || { label: "Balanced", scoringBoost: 0, wicketPressure: 0, chaseBias: 0.1, volatility: 0.45, boosts: [] };
+}
+
+function getBattingConditionsModifier(playerData, attackProfile, pitch, index) {
+  let modifier = 1;
+  playerData.profile.strengths.forEach((type) => {
+    modifier += (attackProfile[type] || 0) * 0.28;
+  });
+  playerData.profile.weaknesses.forEach((type) => {
+    modifier -= (attackProfile[type] || 0) * 0.3;
+  });
+  if (pitch.boosts.some((type) => playerData.profile.strengths.includes(type))) modifier += 0.08;
+  if (pitch.boosts.some((type) => playerData.profile.weaknesses.includes(type))) modifier -= 0.08;
+  if (playerData.profile.pitchBias === "flat" && pitch.scoringBoost > 8) modifier += 0.05;
+  if (playerData.profile.pitchBias === "slow" && pitch.wicketPressure > 0.3) modifier += 0.05;
+  if (index >= 5 && (playerData.roleProfile?.finisher || inferRoleProfile(playerData).finisher)) modifier += 0.06;
+  if (index < 2 && (playerData.roleProfile?.opener || inferRoleProfile(playerData).opener) && attackProfile.leftArmPace > 0.28 && playerData.profile.weaknesses.includes("leftArmPace")) modifier -= 0.07;
+  return clamp(modifier, 0.7, 1.32);
+}
+
+function getDismissalRisk(playerData, attackProfile, pitch, index) {
+  let risk = 0.18;
+  playerData.profile.weaknesses.forEach((type) => {
+    risk += (attackProfile[type] || 0) * 0.24;
+  });
+  playerData.profile.strengths.forEach((type) => {
+    risk -= (attackProfile[type] || 0) * 0.14;
+  });
+  if (playerData.ratings.composure < 70) {
+    risk += 0.06 + Math.max(0, 70 - playerData.ratings.composure) * 0.0085;
+  }
+  if (playerData.ratings.composure < 62) {
+    risk += 0.04;
+  }
+  if (playerData.ratings.composure < 55) {
+    risk += 0.05;
+  }
+  if (pitch.wicketPressure > 0.4 && playerData.profile.pitchBias === "flat") risk += 0.05;
+  if (index < 3 && attackProfile.hitTheDeck > 0.22) risk += 0.03;
+  return clamp(risk, 0.06, 0.72);
+}
+
+function getBowlingConditionsModifier(playerData, pitch, battingComposition) {
+  const bowlingTypes = getBowlingTypes(playerData);
+  let modifier = 1;
+  bowlingTypes.forEach((type) => {
+    if (pitch.boosts.includes(type)) modifier += 0.12;
+  });
+  (playerData.profile?.bowlingStrengths || []).forEach((type) => {
+    modifier += (battingComposition[type] || 0) * 0.18;
+  });
+  (playerData.profile?.bowlingWeaknesses || []).forEach((type) => {
+    modifier -= (battingComposition[type] || 0) * 0.16;
+  });
+  if ((playerData.roleProfile?.deathBowler || inferRoleProfile(playerData).deathBowler) && pitch.scoringBoost > 10) modifier += 0.04;
+  return clamp(modifier, 0.84, 1.26);
+}
+
+function allocateBowlingBalls(totalBalls, bowlerCount, weights) {
+  const allocations = new Array(bowlerCount).fill(0);
+  let remainingBalls = totalBalls;
+  for (let index = 0; index < bowlerCount; index += 1) {
+    const remainingBowlers = bowlerCount - index;
+    const minForThis = Math.max(0, remainingBalls - (remainingBowlers - 1) * 24);
+    const maxForThis = Math.min(24, remainingBalls - (remainingBowlers - 1) * 6);
+    if (remainingBowlers === 1) {
+      allocations[index] = remainingBalls;
+      break;
+    }
+    const rawBalls = roundDownToOver(Math.round(totalBalls * (weights[index] || 0)));
+    const boundedBalls = clamp(rawBalls, Math.max(6, minForThis), Math.max(6, maxForThis));
+    allocations[index] = Math.min(24, boundedBalls);
+    remainingBalls -= allocations[index];
+  }
+  return allocations;
+}
+
+function allocateDeathOversBalls(bowlingCore, bowlingSpellBalls, oversBalls) {
+  const deathBallsTotal = Math.min(24, oversBalls);
+  const allocations = new Array(bowlingCore.length).fill(0);
+  let remainingDeathBalls = deathBallsTotal;
+
+  const priorities = bowlingCore.map((playerData, index) => ({
+    index,
+    available: bowlingSpellBalls[index],
+    priority:
+      ((playerData.roleProfile?.deathBowler || inferRoleProfile(playerData).deathBowler) ? 2.2 : 1) *
+      (playerData.ratings.bowling / 100)
+  })).sort((a, b) => b.priority - a.priority);
+
+  priorities.forEach((entry) => {
+    if (remainingDeathBalls <= 0) return;
+    const maxAssignable = Math.min(entry.available, 12);
+    const desired = entry.priority > 1.5 ? 12 : 6;
+    const assigned = Math.min(maxAssignable, desired, remainingDeathBalls);
+    allocations[entry.index] = assigned;
+    remainingDeathBalls -= assigned;
+  });
+
+  if (remainingDeathBalls > 0) {
+    priorities.forEach((entry) => {
+      if (remainingDeathBalls <= 0) return;
+      const extraCapacity = Math.max(0, Math.min(entry.available, 24) - allocations[entry.index]);
+      if (!extraCapacity) return;
+      const extra = Math.min(extraCapacity, remainingDeathBalls);
+      allocations[entry.index] += extra;
+      remainingDeathBalls -= extra;
+    });
+  }
+
+  return allocations;
+}
+
+function getDeathBowlingFactor(playerData, deathShare) {
+  const isDeathBowler = playerData.roleProfile?.deathBowler || inferRoleProfile(playerData).deathBowler;
+  if (deathShare <= 0) {
+    return { economyBoost: 1, wicketBoost: 1 };
+  }
+
+  if (isDeathBowler) {
+    return {
+      economyBoost: 1 + deathShare * 0.16,
+      wicketBoost: 1 + deathShare * 0.14
+    };
+  }
+
+  return {
+    economyBoost: Math.max(0.88, 1 - deathShare * 0.08),
+    wicketBoost: Math.max(0.94, 1 - deathShare * 0.04)
+  };
+}
+
+function stableHash(text) {
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = ((hash << 5) - hash) + text.charCodeAt(index);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function inferBowlingPreferences(playerData) {
+  const bowlingTypes = getBowlingTypes(playerData);
+  const strengths = [];
+  const weaknesses = [];
+
+  if (bowlingTypes.includes("leftArmPace")) {
+    strengths.push("rightHanders", "anchors");
+    weaknesses.push("leftHanders", "finishers");
+  }
+  if (bowlingTypes.includes("rightArmPace")) {
+    strengths.push("leftHanders", "anchors");
+    weaknesses.push("rightHanders", "finishers");
+  }
+  if (bowlingTypes.includes("hitTheDeck")) {
+    strengths.push("powerBatters", "finishers");
+    weaknesses.push("anchors", "leftHanders");
+  }
+  if (bowlingTypes.includes("leftArmOrthodox")) {
+    strengths.push("rightHanders", "anchors");
+    weaknesses.push("leftHanders", "finishers");
+  }
+  if (bowlingTypes.includes("rightArmOffSpin")) {
+    strengths.push("leftHanders", "powerBatters");
+    weaknesses.push("rightHanders", "finishers");
+  }
+  if (bowlingTypes.includes("wristSpin")) {
+    strengths.push("anchors", "rightHanders");
+    weaknesses.push("leftHanders", "finishers");
+  }
+
+  return {
+    strengths: [...new Set(strengths)].slice(0, 2),
+    weaknesses: [...new Set(weaknesses)].slice(0, 2)
+  };
+}
+
+function buildBattingComposition(players) {
+  const activePlayers = players.slice(0, 7);
+  const total = activePlayers.length || 1;
+  return {
+    leftHanders: activePlayers.filter((playerData) => playerData.battingStyle === "LHB").length / total,
+    rightHanders: activePlayers.filter((playerData) => playerData.battingStyle === "RHB").length / total,
+    powerBatters: activePlayers.filter((playerData) => playerData.roleProfile?.power || inferRoleProfile(playerData).power).length / total,
+    anchors: activePlayers.filter((playerData) => playerData.roleProfile?.anchor || inferRoleProfile(playerData).anchor).length / total,
+    finishers: activePlayers.filter((playerData) => playerData.roleProfile?.finisher || inferRoleProfile(playerData).finisher).length / total
+  };
+}
+
+function pickNotOutIndices(entries, battingModifiers, notOutCount, wicketsLost) {
+  const lastIndex = entries.length - 1;
+
+  if (wicketsLost < 10) {
+    if (notOutCount === 1) return [lastIndex];
+    const partnerPool = entries.slice(0, -1).map((entry, index) => ({
+      index,
+      score:
+        index * 7 +
+        Math.max(0, 18 - entry.balls) * 0.85 +
+        Math.max(0, 22 - entry.runs) * 0.45 +
+        (battingModifiers[index] || 1) * 6 +
+        (index >= Math.max(0, entries.length - 4) ? 12 : 0) +
+        randomBetween(-2, 4)
+    }));
+    const partner = partnerPool.sort((a, b) => b.score - a.score)[0];
+    return partner ? [partner.index, lastIndex] : [lastIndex];
+  }
+
+  const allOutPool = entries.map((entry, index) => ({
+    index,
+    score:
+      entry.runs * 0.45 +
+      entry.balls * 0.1 +
+      (battingModifiers[index] || 1) * 10 +
+      (index >= Math.max(0, entries.length - 2) ? 10 : 0) +
+      (index >= Math.max(0, entries.length - 3) ? 4 : 0) +
+      randomBetween(-2, 3)
+  }));
+  return [allOutPool.sort((a, b) => b.score - a.score)[0].index];
+}
+
+function calculateIntent(playerData, weightedSr, weightedRuns) {
+  let value =
+    48 +
+    Math.max(0, weightedSr - 120) * 0.34 +
+    Math.max(0, weightedRuns - 180) * 0.025;
+  return clamp(value, 45, 96);
+}
+
+function calculateComposure(playerData, weightedAvg, battingSample, weightedWkts) {
+  let value =
+    46 +
+    weightedAvg * 0.42 +
+    Math.max(0, battingSample - 650) * 0.01;
+  return clamp(value, 42, 94);
+}
+
+function estimatePhaseBalls(index, didBatCount, oversBalls) {
+  const openerShare = index < 2 ? 0.29 : index < 4 ? 0.22 : 0.15;
+  return Math.round(oversBalls * openerShare * Math.max(0.5, (didBatCount - index) / didBatCount));
+}
+
+function formatMatchupTypes(types) {
+  const labels = {
+    leftArmPace: "left-arm pace",
+    rightArmPace: "right-arm pace",
+    hitTheDeck: "hit-the-deck pace",
+    leftArmOrthodox: "left-arm orthodox",
+    rightArmOffSpin: "right-arm off-spin",
+    wristSpin: "wrist spin"
+  };
+  return types.map((type) => labels[type] || type).join(", ");
+}
+
+function formatBatterTypes(types) {
+  const labels = {
+    leftHanders: "left-hand batters",
+    rightHanders: "right-hand batters",
+    powerBatters: "power batters",
+    anchors: "anchors",
+    finishers: "finishers"
+  };
+  return types.map((type) => labels[type] || type).join(", ");
+}
+
+function randomInt(min, max) {
+  if (max < min) return min;
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function isBatterRole(role) {
+  return role.includes("Opener") || role.includes("Anchor") || role.includes("Shotmaker") || role.includes("Engine") ||
+    role.includes("Hunter") || role.includes("Closer") || role.includes("Batter");
+}
+
+function isBowlerRole(role) {
+  return role.includes("Seamer") || role.includes("Spinner") || role.includes("Enforcer") || role.includes("Bowler");
+}
+
+function isAllRounder(playerData) {
+  return (playerData.roleProfile || inferRoleProfile(playerData)).roleGroup === "allRounder";
+}
+
+function isBowler(playerData) {
+  return (playerData.roleProfile || inferRoleProfile(playerData)).roleGroup === "bowler";
+}
+
+function toBoolean(value) {
+  return value === true || value === "true" || value === "TRUE" || value === "1" || value === 1;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function hexToRgba(hex, alpha) {
+  const normalized = hex.replace("#", "");
+  const bigint = parseInt(normalized, 16);
+  const r = (bigint >> 16) & 255;
+  const g = (bigint >> 8) & 255;
+  const b = bigint & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IPL 2026 Player Ratings</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="preload" href="styles.css" as="style" />
+  <link rel="preload" href="app.js" as="script" />
+  <link rel="prefetch" href="index.html" />
+  <link rel="prefetch" href="custom.html" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <nav class="top-nav">
+      <a class="nav-link" href="index.html">Simulator</a>
+      <a class="nav-link active" href="ratings.html">Player Ratings</a>
+      <a class="nav-link" href="custom.html">Custom XI</a>
+      <a class="nav-link" href="make-player.html">Make A Player</a>
+      <button id="contact-trigger" class="nav-link nav-button nav-contact" type="button">Contact</button>
+    </nav>
+
+    <div id="contact-overlay" class="info-overlay" hidden>
+      <div id="contact-backdrop" class="info-backdrop"></div>
+      <section id="contact-panel" class="info-panel" role="dialog" aria-modal="true" aria-labelledby="contact-title">
+        <button id="contact-close" class="info-dismiss" type="button" aria-label="Close contact">×</button>
+        <p class="eyebrow">CONTACT</p>
+        <h2 id="contact-title" class="info-title">Get in touch</h2>
+        <article class="info-card">
+          <h3>Feedback / bug? <a class="inline-award-link" href="mailto:iplsimulator@gmail.com">iplsimulator@gmail.com</a></h3>
+        </article>
+      </section>
+    </div>
+
+    <header class="hero ratings-hero">
+      <section class="scoreboard-panel">
+        <div class="panel-heading compact">
+          <div>
+            <p class="eyebrow">Ratings Controls</p>
+            <h2>Sort and Scan</h2>
+          </div>
+        </div>
+        <div class="selector-row ratings-controls">
+          <label>
+            Team
+            <select id="ratings-team-filter"></select>
+          </label>
+          <label>
+            Sort By
+            <select id="ratings-sort">
+              <option value="overall">Overall</option>
+              <option value="batting">Batting</option>
+              <option value="bowling">Bowling</option>
+              <option value="allRound">All-Round</option>
+              <option value="clutch">Clutch</option>
+              <option value="intent">Intent</option>
+              <option value="composure">Comp</option>
+              <option value="econ">Economy</option>
+              <option value="wkts">Wicket Taking</option>
+            </select>
+          </label>
+        </div>
+      </section>
+    </header>
+
+    <main class="dashboard-grid ratings-grid">
+      <section class="panel panel-wide">
+        <div class="panel-heading compact">
+          <div>
+            <p class="eyebrow">Ratings Board</p>
+            <h2>Player Cards</h2>
+          </div>
+        </div>
+        <div id="ratings-grid" class="player-grid"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="players-data.js?v=20260315k"></script>
+  <script src="app.js?v=20260315k"></script>
+</body>
+</html>
