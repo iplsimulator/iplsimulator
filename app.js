@@ -819,6 +819,7 @@ function initControls() {
     renderLatestScorecard();
     renderStandings();
     renderAwards();
+    renderRoster();
     renderFeaturedMatchup();
     renderTicker();
     maybeLaunchGameOutcomeSymbols(result);
@@ -848,6 +849,7 @@ function initControls() {
     renderAwards();
     renderMatchLog();
     renderLatestScorecard();
+    renderRoster();
     renderFeaturedMatchup();
     renderTicker();
     const final = state.season.featuredMatches[0];
