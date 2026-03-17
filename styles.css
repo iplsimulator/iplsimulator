@@ -35,6 +35,11 @@ body {
     linear-gradient(145deg, #060c16, #091526 45%, #0d1e33);
 }
 
+body.bowling-plan-open {
+  height: 100vh;
+  overflow: hidden;
+}
+
 body::before {
   content: "";
   position: absolute;
@@ -1121,6 +1126,7 @@ select option {
   width: min(980px, 100%);
   max-height: calc(100vh - 48px);
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .bowling-plan-head {

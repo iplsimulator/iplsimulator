@@ -1859,13 +1859,6 @@ function renderBowlingPlanEditor(teamCode) {
 
   container.innerHTML = `
     <section class="bowling-plan-card">
-      <div class="bowling-plan-head">
-        <div>
-          <p class="eyebrow">Bowling Plan</p>
-          <h3>${escapeHtml(team?.name || teamCode)} Over Assignments</h3>
-        </div>
-        <p class="player-season-line">Choose the bowler for each over. The match engine will now resolve innings over-by-over using this plan.</p>
-      </div>
       <div class="bowling-plan-summary">${summary}</div>
       ${state.bowlingPlanValidationTeam === teamCode && validation.errors.length ? `
         <div class="lineup-warning lineup-helper-row">
@@ -2905,7 +2898,7 @@ function calculateMatchImpactEntries(firstInnings, secondInnings) {
     innings.batting.forEach((entry) => {
       if (!entry.didBat) return;
       const strikeRate = entry.balls > 0 ? (entry.runs / entry.balls) * 100 : 0;
-      const runsImpact = entry.runs * 0.9;
+      const runsImpact = entry.runs * 1;
       const strikeRateImpact = entry.balls >= 8
         ? Math.max(-12, Math.min(20, (strikeRate - 125) * 0.18))
         : Math.max(-4, Math.min(8, (strikeRate - 125) * 0.08));
@@ -3055,14 +3048,14 @@ function generateInningsBreakdown(battingTeam, bowlingTeam, context) {
       bowlerCard.balls += 1;
 
       const dismissalChance = clamp(
-        0.012 +
+        0.016 +
         getDismissalRisk(striker, bowlingTeam.attackProfile, pitch, strikerIndex) * 0.05 +
-        Math.max(0, currentBowler.ratings.wkts - 60) * 0.0009 +
+        Math.max(0, currentBowler.ratings.wkts - 60) * 0.00115 +
         (deathFactor.wicketBoost - 1) * 0.045 -
-        Math.max(0, striker.ratings.composure - 65) * 0.00055 -
-        Math.max(0, striker.ratings.batting - 78) * 0.00035 +
+        Math.max(0, striker.ratings.composure - 65) * 0.00038 -
+        Math.max(0, striker.ratings.batting - 78) * 0.00022 +
         (requiredRate > 10.5 ? 0.01 : 0),
-        0.008,
+        0.012,
         0.16
       );
 
@@ -3958,6 +3951,7 @@ function buildSeasonSchedule() {
     return [];
   }
 
+  const regularSeasonRounds = 14;
   const rotation = teams.map((team) => team.code);
   const firstLeg = [];
 
@@ -3982,7 +3976,9 @@ function buildSeasonSchedule() {
     awayCode: fixture.homeCode,
     played: false,
     result: null
-  })))].map((fixtures, index) => ({
+  })))]
+    .slice(0, regularSeasonRounds)
+    .map((fixtures, index) => ({
     label: `WEEK ${index + 1}`,
     fixtures
   }));
