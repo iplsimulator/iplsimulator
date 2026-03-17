@@ -1048,7 +1048,7 @@ function initSimulatorHowToPlayOverlay() {
       label: "HOW TO PLAY",
       title: "Tune your active XII before simming",
       content: `
-        <div class="how-to-play-sections how-to-play-sections-double">
+        <div class="how-to-play-sections">
           <article class="how-to-play-item">
             <p class="how-to-play-item-label">Lineup Builder</p>
             <h3>Set the order of your active group</h3>
@@ -1058,6 +1058,11 @@ function initSimulatorHowToPlayOverlay() {
             <p class="how-to-play-item-label">Impact Subs</p>
             <h3>Choose flexible matchup options</h3>
             <p>Pick the impact-player options from the active group so the simulator can balance batting and bowling changes during a match.</p>
+          </article>
+          <article class="how-to-play-item">
+            <p class="how-to-play-item-label">Bowling Plan</p>
+            <h3>Map out who bowls each over</h3>
+            <p>Open the Bowling Plan from the lineup helper to assign overs manually. Stuck? Click Auto Plan to restore the original bowling plan.</p>
           </article>
         </div>
       `,
