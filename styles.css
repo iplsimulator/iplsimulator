@@ -1141,6 +1141,8 @@ select option {
 }
 
 .bowling-plan-chip {
+  --bowling-plan-chip-accent: var(--muted);
+  appearance: none;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -1151,18 +1153,39 @@ select option {
   color: var(--muted);
   font-size: 0.78rem;
   text-transform: none;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, color 160ms ease;
 }
 
 .bowling-plan-chip strong {
   color: var(--text);
 }
 
+.bowling-plan-chip:hover,
+.bowling-plan-chip:focus-visible {
+  transform: translateY(-1px);
+  border-color: var(--bowling-plan-chip-accent);
+  background: color-mix(in srgb, var(--bowling-plan-chip-accent) 16%, transparent);
+  outline: none;
+}
+
+.bowling-plan-chip.is-unused:hover,
+.bowling-plan-chip.is-unused:focus-visible {
+  --bowling-plan-chip-accent: #ffb0b0;
+  border-color: rgba(255, 99, 99, 0.72);
+  background: rgba(255, 99, 99, 0.14);
+  color: #ffb0b0;
+}
+
 .bowling-plan-chip.is-maxed {
+  --bowling-plan-chip-accent: #f5d98a;
   border-color: rgba(245, 196, 81, 0.6);
   background: rgba(245, 196, 81, 0.09);
+  color: #f5d98a;
 }
 
 .bowling-plan-chip.is-over-limit {
+  --bowling-plan-chip-accent: #ffd4d4;
   border-color: rgba(255, 99, 99, 0.7);
   background: rgba(255, 99, 99, 0.12);
   color: #ffd4d4;
@@ -1175,7 +1198,26 @@ select option {
 }
 
 .bowling-plan-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   padding: 14px 16px;
+  text-align: center;
+}
+
+.bowling-plan-slot.is-flashing {
+  animation: bowling-plan-slot-flash 1.15s ease-out;
+}
+
+@keyframes bowling-plan-slot-flash {
+  0% {
+    border-color: var(--bowling-plan-flash-color, rgba(255, 179, 71, 0.95));
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--bowling-plan-flash-color, rgba(255, 179, 71, 0.95)) 82%, transparent), 0 0 22px color-mix(in srgb, var(--bowling-plan-flash-color, rgba(255, 179, 71, 0.95)) 30%, transparent);
+  }
+  100% {
+    border-color: rgba(255, 255, 255, 0.06);
+    box-shadow: none;
+  }
 }
 
 .lineup-slot {
@@ -1192,6 +1234,14 @@ select option {
 
 .lineup-slot select {
   width: 100%;
+}
+
+.lineup-slot.bowling-plan-slot select {
+  width: 185px;
+  max-width: 100%;
+  min-width: 0;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .lineup-card-controls {

@@ -1926,9 +1926,9 @@ function renderBowlingPlanEditor(teamCode) {
   const plan = getBowlingPlan(teamCode);
   const validation = getBowlingPlanValidation(teamCode);
   const summary = bowlers.map((playerData) => `
-    <span class="bowling-plan-chip ${validation.counts[playerData.name] > 4 ? "is-over-limit" : validation.counts[playerData.name] === 4 ? "is-maxed" : ""}">
+    <button class="bowling-plan-chip ${getBowlingPlanChipClass(validation.counts[playerData.name] || 0)}" type="button" data-bowling-plan-chip="${escapeHtml(playerData.name)}">
       ${escapeHtml(playerData.name)} <strong>${validation.counts[playerData.name] || 0}/4</strong>
-    </span>
+    </button>
   `).join("");
 
   container.innerHTML = `
@@ -1953,7 +1953,7 @@ function renderBowlingPlanEditor(teamCode) {
       `}
       <div class="bowling-plan-grid">
         ${plan.map((assignedName, index) => `
-          <label class="lineup-slot bowling-plan-slot">
+          <label class="lineup-slot bowling-plan-slot" data-bowling-plan-slot="${index}" data-assigned-bowler="${escapeHtml(assignedName)}">
             <span>Over ${index + 1}</span>
             <select data-bowling-plan-over="${index}">
               ${bowlers.map((playerData) => `
@@ -1975,10 +1975,61 @@ function renderBowlingPlanEditor(teamCode) {
     });
   });
 
+  container.querySelectorAll("[data-bowling-plan-chip]").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      flashBowlingPlanAssignments(container, chip.dataset.bowlingPlanChip, getBowlingPlanChipFlashColor(chip));
+    });
+  });
+
   document.getElementById("auto-bowling-plan")?.addEventListener("click", () => {
     state.bowlingPlans[teamCode] = buildDefaultBowlingPlan(teamCode);
     state.bowlingPlanValidationTeam = null;
     renderBowlingPlanEditor(teamCode);
+  });
+}
+
+function getBowlingPlanChipClass(overCount) {
+  if (overCount > 4) return "is-over-limit";
+  if (overCount === 4) return "is-maxed";
+  if (overCount === 0) return "is-unused";
+  return "";
+}
+
+function getBowlingPlanChipFlashColor(chip) {
+  if (!chip) {
+    return "";
+  }
+  const styles = window.getComputedStyle(chip);
+  const preferredColor = styles.getPropertyValue("--bowling-plan-chip-accent").trim();
+  return preferredColor || styles.color;
+}
+
+function flashBowlingPlanAssignments(container, bowlerName, flashColor = "") {
+  if (!container || !bowlerName) {
+    return;
+  }
+
+  container.querySelectorAll(".bowling-plan-slot.is-flashing").forEach((slot) => {
+    slot.classList.remove("is-flashing");
+    slot.style.removeProperty("--bowling-plan-flash-color");
+  });
+
+  const matchingSlots = [...container.querySelectorAll("[data-bowling-plan-slot]")].filter((slot) => {
+    const select = slot.querySelector("[data-bowling-plan-over]");
+    return select?.value === bowlerName;
+  });
+
+  matchingSlots.forEach((slot) => {
+    // Restart the flash animation on repeated clicks.
+    void slot.offsetWidth;
+    if (flashColor) {
+      slot.style.setProperty("--bowling-plan-flash-color", flashColor);
+    }
+    slot.classList.add("is-flashing");
+    window.setTimeout(() => {
+      slot.classList.remove("is-flashing");
+      slot.style.removeProperty("--bowling-plan-flash-color");
+    }, 1200);
   });
 }
 
