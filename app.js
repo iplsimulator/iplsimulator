@@ -50,6 +50,8 @@ const state = {
   selectedLineupSwap: null,
   lineupCardFlips: {},
   impactSubs: {},
+  bowlingPlans: {},
+  bowlingPlanValidationTeam: null,
   lineupValidationTeam: null,
   customSelections: {
     teamA: [],
@@ -383,6 +385,10 @@ function initializeStateFromTeams() {
   state.impactSubs = Object.fromEntries(
     teams.map((team) => [team.code, getDefaultImpactSubNames(team.code)])
   );
+  state.bowlingPlans = Object.fromEntries(
+    teams.map((team) => [team.code, buildDefaultBowlingPlan(team.code)])
+  );
+  state.bowlingPlanValidationTeam = null;
   state.lineupValidationTeam = null;
   state.lastSeasonLossChampion = null;
 }
@@ -398,6 +404,66 @@ function buildDefaultCustomSelections() {
     teamA: Array.from({ length: 11 }, (_, index) => teams[Math.floor(index / 2)].players[index % teams[Math.floor(index / 2)].players.length].name),
     teamB: Array.from({ length: 11 }, (_, index) => teams[(index + 3) % teams.length].players[index % teams[(index + 3) % teams.length].players.length].name)
   };
+}
+
+function buildDefaultBowlingPlan(teamCode) {
+  const team = findTeam(teamCode);
+  if (!team) return Array(20).fill("");
+  const lineup = getLineupForTeam(teamCode)
+    .slice(0, 12)
+    .map((name) => team.players.find((playerData) => playerData.name === name))
+    .filter((playerData) => playerData && isPrimaryBowler(playerData))
+    .sort((a, b) => {
+      const deathDelta = Number(Boolean(b.roleProfile?.deathBowler || inferRoleProfile(b).deathBowler)) -
+        Number(Boolean(a.roleProfile?.deathBowler || inferRoleProfile(a).deathBowler));
+      if (deathDelta !== 0) return deathDelta;
+      return b.ratings.bowling - a.ratings.bowling;
+    });
+
+  if (!lineup.length) {
+    return Array(20).fill("");
+  }
+
+  const plan = Array(20).fill("");
+  const overCounts = new Map();
+  const preferredDeath = lineup.find((playerData) => playerData.roleProfile?.deathBowler || inferRoleProfile(playerData).deathBowler) || lineup[0];
+  const paceCore = lineup.filter((playerData) => isPaceBowler(playerData));
+  const openingCore = (paceCore.length ? paceCore : lineup).slice(0, Math.min(4, paceCore.length || lineup.length));
+  const middleCore = lineup.slice(0, Math.min(6, lineup.length));
+
+  const assignOver = (overIndex, candidates) => {
+    const chosen = candidates
+      .filter(Boolean)
+      .find((playerData) => {
+        const bowled = overCounts.get(playerData.name) || 0;
+        if (bowled >= 4) return false;
+        if (overIndex > 0 && plan[overIndex - 1] === playerData.name) return false;
+        return true;
+      }) || candidates.find(Boolean);
+    if (!chosen) return;
+    plan[overIndex] = chosen.name;
+    overCounts.set(chosen.name, (overCounts.get(chosen.name) || 0) + 1);
+  };
+
+  [0, 1, 2, 3].forEach((overIndex) => {
+    const ordered = [...openingCore].sort((a, b) => (overCounts.get(a.name) || 0) - (overCounts.get(b.name) || 0) || b.ratings.bowling - a.ratings.bowling);
+    assignOver(overIndex, ordered);
+  });
+
+  for (let overIndex = 4; overIndex < 16; overIndex += 1) {
+    const ordered = [...middleCore].sort((a, b) => (overCounts.get(a.name) || 0) - (overCounts.get(b.name) || 0) || b.ratings.bowling - a.ratings.bowling);
+    assignOver(overIndex, ordered);
+  }
+
+  [16, 17, 18, 19].forEach((overIndex) => {
+    const ordered = [
+      preferredDeath,
+      ...lineup.filter((playerData) => playerData.name !== preferredDeath.name)
+    ].sort((a, b) => (overCounts.get(a.name) || 0) - (overCounts.get(b.name) || 0) || b.ratings.bowling - a.ratings.bowling);
+    assignOver(overIndex, ordered);
+  });
+
+  return plan.map((name, index) => name || lineup[index % lineup.length].name);
 }
 
 function renderDataLoadError(error) {
@@ -663,6 +729,10 @@ function initControls() {
       renderFeaturedResultMessage("Select exactly two impact players from the active XII before simulating.");
       return;
     }
+    if (!validateBowlingPlanBeforeSimulation()) {
+      renderFeaturedResultMessage("Set a valid bowling plan before simulating.");
+      return;
+    }
     const result = simulateFranchiseGame();
     if (!result) {
       renderFeaturedMatchup();
@@ -696,6 +766,10 @@ function initControls() {
       renderFeaturedResultMessage("Select exactly two impact players from the active XII before simulating the season.");
       return;
     }
+    if (!validateBowlingPlanBeforeSimulation()) {
+      renderFeaturedResultMessage("Set a valid bowling plan before simulating the season.");
+      return;
+    }
     state.season = simulateSeason();
     state.matchLog = [...state.season.featuredMatches];
     renderStandings();
@@ -724,6 +798,7 @@ function initControls() {
 
 function renderAll() {
   initContactOverlay();
+  initBowlingPlanModal();
 
   if (document.getElementById("franchise-team-select")) {
     initSimulatorHowToPlayOverlay();
@@ -973,7 +1048,7 @@ function initSimulatorHowToPlayOverlay() {
       label: "HOW TO PLAY",
       title: "Tune your active XII before simming",
       content: `
-        <div class="how-to-play-sections how-to-play-sections-double">
+        <div class="how-to-play-sections">
           <article class="how-to-play-item">
             <p class="how-to-play-item-label">Lineup Builder</p>
             <h3>Set the order of your active group</h3>
@@ -983,6 +1058,11 @@ function initSimulatorHowToPlayOverlay() {
             <p class="how-to-play-item-label">Impact Subs</p>
             <h3>Choose flexible matchup options</h3>
             <p>Pick the impact-player options from the active group so the simulator can balance batting and bowling changes during a match.</p>
+          </article>
+          <article class="how-to-play-item">
+            <p class="how-to-play-item-label">Bowling Plan</p>
+            <h3>Map out who bowls each over</h3>
+            <p>Open the Bowling Plan from the lineup helper to assign overs manually. Stuck? Click Auto Plan to restore the original bowling plan.</p>
           </article>
         </div>
       `,
@@ -1384,6 +1464,7 @@ function renderRosterWithStatsCard() {
   document.getElementById("roster-team-style").textContent = team.identity;
   document.getElementById("roster-team-ovr").textContent = `XI OVR ${lineupTeam.teamRatings.overall}`;
   renderImpactSubWarning(team.code);
+  renderBowlingPlanEditor(team.code);
 
   const roster = getLineupForTeam(team.code)
     .map((name) => team.players.find((playerData) => playerData.name === name))
@@ -1689,11 +1770,212 @@ function renderImpactSubWarning(teamCode) {
     return;
   }
   container.innerHTML = `
-    <div class="lineup-helper">
-      <strong>Impact Players</strong>
-      <span>The active XII is the first 12 players. Select 2 impact players from that group.</span>
+    <div class="lineup-helper lineup-helper-row">
+      <div>
+        <strong>Impact Players</strong>
+        <span>The active XII is the first 12 players. Select 2 impact players from that group.</span>
+      </div>
+      <button id="open-bowling-plan" class="ghost-btn lineup-helper-action" type="button">Bowling Plan</button>
     </div>
   `;
+  document.getElementById("open-bowling-plan")?.addEventListener("click", () => openBowlingPlanModal());
+}
+
+function getEligibleBowlingPlanPlayers(teamCode) {
+  const team = findTeam(teamCode);
+  if (!team) return [];
+  return getLineupForTeam(teamCode)
+    .slice(0, 12)
+    .map((name) => team.players.find((playerData) => playerData.name === name))
+    .filter((playerData) => playerData && isEligibleBowler(playerData));
+}
+
+function getBowlingPlan(teamCode) {
+  const eligibleNames = new Set(getEligibleBowlingPlanPlayers(teamCode).map((playerData) => playerData.name));
+  const existing = Array.isArray(state.bowlingPlans?.[teamCode]) ? state.bowlingPlans[teamCode].slice(0, 20) : [];
+  const filled = Array.from({ length: 20 }, (_, index) => {
+    const candidate = existing[index] || "";
+    return eligibleNames.has(candidate) ? candidate : "";
+  });
+  if (filled.some((name) => !name)) {
+    const defaults = buildDefaultBowlingPlan(teamCode);
+    for (let index = 0; index < 20; index += 1) {
+      if (!filled[index] && defaults[index] && eligibleNames.has(defaults[index])) {
+        filled[index] = defaults[index];
+      }
+    }
+  }
+  state.bowlingPlans[teamCode] = filled;
+  return filled;
+}
+
+function getBowlingPlanValidation(teamCode) {
+  const plan = getBowlingPlan(teamCode);
+  const eligibleNames = new Set(getEligibleBowlingPlanPlayers(teamCode).map((playerData) => playerData.name));
+  const counts = {};
+  const errors = [];
+
+  plan.forEach((name, index) => {
+    if (!name) {
+      errors.push(`Assign a bowler for over ${index + 1}.`);
+      return;
+    }
+    if (!eligibleNames.has(name)) {
+      errors.push(`${name} is no longer an eligible bowler in the active XII.`);
+      return;
+    }
+    counts[name] = (counts[name] || 0) + 1;
+    if (counts[name] > 4) {
+      errors.push(`${name} is assigned more than 4 overs.`);
+    }
+    if (index > 0 && plan[index - 1] === name) {
+      errors.push(`${name} is assigned back-to-back overs ${index} and ${index + 1}.`);
+    }
+  });
+
+  return {
+    counts,
+    errors: [...new Set(errors)]
+  };
+}
+
+function renderBowlingPlanEditor(teamCode) {
+  const container = document.getElementById("bowling-plan-panel");
+  if (!container) return;
+  const bowlers = getEligibleBowlingPlanPlayers(teamCode);
+  if (!bowlers.length) {
+    container.innerHTML = "";
+    return;
+  }
+
+  const team = findTeam(teamCode);
+  const plan = getBowlingPlan(teamCode);
+  const validation = getBowlingPlanValidation(teamCode);
+  const summary = bowlers.map((playerData) => `
+    <span class="bowling-plan-chip ${validation.counts[playerData.name] > 4 ? "is-over-limit" : validation.counts[playerData.name] === 4 ? "is-maxed" : ""}">
+      ${escapeHtml(playerData.name)} <strong>${validation.counts[playerData.name] || 0}/4</strong>
+    </span>
+  `).join("");
+
+  container.innerHTML = `
+    <section class="bowling-plan-card">
+      <div class="bowling-plan-head">
+        <div>
+          <p class="eyebrow">Bowling Plan</p>
+          <h3>${escapeHtml(team?.name || teamCode)} Over Assignments</h3>
+        </div>
+        <p class="player-season-line">Choose the bowler for each over. The match engine will now resolve innings over-by-over using this plan.</p>
+      </div>
+      <div class="bowling-plan-summary">${summary}</div>
+      ${state.bowlingPlanValidationTeam === teamCode && validation.errors.length ? `
+        <div class="lineup-warning lineup-helper-row">
+          <div>
+            <strong>Fix the bowling plan before simulating.</strong>
+            <span>${escapeHtml(validation.errors[0])}</span>
+          </div>
+          <button class="ghost-btn lineup-helper-action" type="button" id="auto-bowling-plan">Auto Plan</button>
+        </div>
+      ` : `
+        <div class="lineup-helper lineup-helper-row">
+          <div>
+            <strong>Plan Rules</strong>
+            <span>No bowler can exceed 4 overs or bowl consecutive overs.</span>
+          </div>
+          <button class="ghost-btn lineup-helper-action" type="button" id="auto-bowling-plan">Auto Plan</button>
+        </div>
+      `}
+      <div class="bowling-plan-grid">
+        ${plan.map((assignedName, index) => `
+          <label class="lineup-slot bowling-plan-slot">
+            <span>Over ${index + 1}</span>
+            <select data-bowling-plan-over="${index}">
+              ${bowlers.map((playerData) => `
+                <option value="${escapeHtml(playerData.name)}" ${playerData.name === assignedName ? "selected" : ""}>
+                  ${escapeHtml(playerData.name)}${playerData.name === assignedName ? "" : ` • Bowl ${playerData.ratings.bowling}`}
+                </option>
+              `).join("")}
+            </select>
+          </label>
+        `).join("")}
+      </div>
+    </section>
+  `;
+
+  container.querySelectorAll("[data-bowling-plan-over]").forEach((select) => {
+    select.addEventListener("change", (event) => {
+      const overIndex = Number(event.target.dataset.bowlingPlanOver);
+      updateBowlingPlanOver(teamCode, overIndex, event.target.value);
+    });
+  });
+
+  document.getElementById("auto-bowling-plan")?.addEventListener("click", () => {
+    state.bowlingPlans[teamCode] = buildDefaultBowlingPlan(teamCode);
+    state.bowlingPlanValidationTeam = null;
+    renderBowlingPlanEditor(teamCode);
+  });
+}
+
+function validateBowlingPlanBeforeSimulation(teamCode = state.franchiseTeam) {
+  const validation = getBowlingPlanValidation(teamCode);
+  if (!validation.errors.length) {
+    state.bowlingPlanValidationTeam = null;
+    return true;
+  }
+  state.bowlingPlanValidationTeam = teamCode;
+  renderRoster();
+  openBowlingPlanModal();
+  return false;
+}
+
+function updateBowlingPlanOver(teamCode, overIndex, playerName) {
+  const plan = [...getBowlingPlan(teamCode)];
+  if (overIndex < 0 || overIndex >= plan.length) {
+    return;
+  }
+  plan[overIndex] = playerName;
+  state.bowlingPlans[teamCode] = plan;
+  if (!getBowlingPlanValidation(teamCode).errors.length) {
+    state.bowlingPlanValidationTeam = null;
+  }
+  renderRoster();
+}
+
+function initBowlingPlanModal() {
+  const overlay = document.getElementById("bowling-plan-overlay");
+  const backdrop = document.getElementById("bowling-plan-backdrop");
+  const closeButton = document.getElementById("bowling-plan-close");
+  if (!overlay || !backdrop || !closeButton) {
+    return;
+  }
+
+  if (overlay.dataset.bound === "true") {
+    return;
+  }
+
+  const close = () => {
+    overlay.hidden = true;
+    document.body.classList.remove("bowling-plan-open");
+  };
+
+  backdrop.addEventListener("click", close);
+  closeButton.addEventListener("click", close);
+  window.addEventListener("keydown", (event) => {
+    if (!overlay.hidden && event.key === "Escape") {
+      close();
+    }
+  });
+
+  overlay.dataset.bound = "true";
+}
+
+function openBowlingPlanModal() {
+  const overlay = document.getElementById("bowling-plan-overlay");
+  if (!overlay) {
+    return;
+  }
+  renderBowlingPlanEditor(state.franchiseTeam);
+  overlay.hidden = false;
+  document.body.classList.add("bowling-plan-open");
 }
 
 function validateImpactSubsBeforeSimulation(teamCode = state.franchiseTeam) {
@@ -1716,6 +1998,8 @@ function updateLineupSlot(teamCode, slotIndex, playerName) {
     lineup[slotIndex] = playerName;
   }
   state.teamLineups[teamCode] = lineup;
+  state.bowlingPlans[teamCode] = buildDefaultBowlingPlan(teamCode);
+  state.bowlingPlanValidationTeam = null;
   renderFeaturedMatchup();
   renderTeamCards();
   renderRoster();
@@ -1727,6 +2011,8 @@ function moveLineupPlayer(teamCode, slotIndex, direction) {
   if (swapIndex < 0 || swapIndex >= lineup.length) return;
   [lineup[slotIndex], lineup[swapIndex]] = [lineup[swapIndex], lineup[slotIndex]];
   state.teamLineups[teamCode] = lineup;
+  state.bowlingPlans[teamCode] = buildDefaultBowlingPlan(teamCode);
+  state.bowlingPlanValidationTeam = null;
   state.selectedLineupSwap = null;
   renderFeaturedMatchup();
   renderTeamCards();
@@ -1745,6 +2031,8 @@ function reorderLineupPlayer(teamCode, fromIndex, toIndex) {
   }
   [lineup[fromIndex], lineup[toIndex]] = [lineup[toIndex], lineup[fromIndex]];
   state.teamLineups[teamCode] = lineup;
+  state.bowlingPlans[teamCode] = buildDefaultBowlingPlan(teamCode);
+  state.bowlingPlanValidationTeam = null;
   state.selectedLineupSwap = null;
   renderFeaturedMatchup();
   renderTeamCards();
@@ -1793,7 +2081,8 @@ function buildLineupTeam(team) {
     activeTwelve,
     players: battingPlayers,
     battingPlayers,
-    bowlingPlayers
+    bowlingPlayers,
+    bowlingPlan: getBowlingPlan(team.code)
   };
   lineupTeam.teamRatings = {
     batting: battingRatings.batting,
@@ -2048,13 +2337,17 @@ function simulateCustomMatch() {
 function buildCustomTeam(name, selectedNames) {
   const players = selectedNames.map((playerName) => clonePlayer(getAllPlayers().find((playerData) => playerData.name === playerName))).filter(Boolean);
   const code = name === "Custom XI A" ? "CXA" : "CXB";
+  const bowlingPlan = buildFallbackBowlingPlan(players);
   const team = {
     code,
     name,
     identity: "Handcrafted Matchup XI",
     venue: "Neutral custom venue",
     colors: code === "CXA" ? ["#f5c451", "#0d3157"] : ["#5ce1e6", "#3b194a"],
-    players
+    players,
+    battingPlayers: players,
+    bowlingPlayers: players,
+    bowlingPlan
   };
   team.teamRatings = calculateTeamRatings(players);
   team.attackProfile = buildAttackProfile(players);
@@ -2664,347 +2957,321 @@ function getMatchImpactKey(name, teamCode) {
 function generateInningsBreakdown(battingTeam, bowlingTeam, context) {
   const pitch = context.pitch;
   const battingOrder = (battingTeam.battingPlayers || battingTeam.players).map((playerData, index) => ({ ...playerData, position: index + 1 }));
-  const battingComposition = buildBattingComposition(battingOrder);
-  const battingModifiers = battingOrder.map((playerData, index) =>
-    getBattingConditionsModifier(playerData, bowlingTeam.attackProfile, pitch, index)
-  );
-  const teamMatchup = average(battingModifiers);
-  const volatility = 10 + pitch.volatility * 8;
-
-  const expectedTotal = clamp(
-    150 +
-    pitch.scoringBoost +
-    (battingTeam.teamRatings.batting - bowlingTeam.teamRatings.bowling) * 0.95 +
-    teamMatchup * 11 +
-    randomBetween(-volatility, volatility),
-    105,
-    214
-  );
-
-  let wickets = Math.round(clamp(
-    7.2 +
-    pitch.wicketPressure +
-    (bowlingTeam.teamRatings.bowling - battingTeam.teamRatings.batting) / 15 -
-    teamMatchup * 1 +
-    randomBetween(-1.5, 1.5),
-    2,
-    10
-  ));
-
-  let total = Math.round(expectedTotal);
-  let oversBalls = 120;
+  const batting = battingOrder.map((playerData) => ({
+    name: playerData.name,
+    didBat: false,
+    runs: 0,
+    balls: 0,
+    notOut: false
+  }));
+  const extrasBreakdown = { total: 0, wides: 0, noBalls: 0, byes: 0, legByes: 0 };
+  const bowlingCard = new Map();
+  const oversByBowler = {};
+  let wicketsLost = 0;
+  let total = 0;
+  let oversBalls = 0;
   const target = context.target;
   const chasing = context.inningsNumber === 2;
-  let chaseSucceeded = false;
-  let desiredWinningTotal = null;
+  let strikerIndex = 0;
+  let nonStrikerIndex = Math.min(1, battingOrder.length - 1);
+  let nextBatterIndex = battingOrder.length > 1 ? 2 : 1;
 
-  if (chasing) {
-    const targetPressure = ((target || 0) - 164) / 20;
-    const chaseAdvantage =
-      pitch.chaseBias * 0.7 +
-        (battingTeam.teamRatings.batting - bowlingTeam.teamRatings.bowling) / 42 +
-        teamMatchup * 0.28 -
-        targetPressure;
-    const chaseSuccess = chaseAdvantage + randomBetween(-1.15, 0.95) > 0.12;
-    if (chaseSuccess) {
-      chaseSucceeded = true;
-      wickets = Math.round(clamp(wickets - randomBetween(0.3, 1.4), 2, 7));
-      oversBalls = Math.round(clamp(
-        72 + (target - 110) * 0.45 + wickets * 3 + randomBetween(-8, 10),
-        36,
-        119
-      ));
-      desiredWinningTotal = target + pickChaseWinningBuffer();
-      const projectedExtras = estimateInningsExtras(oversBalls, wickets, pitch).total;
-      total = clamp(
-        desiredWinningTotal - projectedExtras,
-        Math.max(0, target - projectedExtras),
-        Math.max(0, target + 5 - projectedExtras)
-      );
-    } else {
-      total = Math.min(target - 1, Math.round(expectedTotal - randomBetween(6, 28) - Math.max(0, targetPressure * 6)));
-      if (Math.random() < 0.32 + Math.max(0, targetPressure * 0.06)) {
-        oversBalls = Math.round(clamp(102 + randomBetween(-8, 6), 84, 119));
-        wickets = 10;
-      } else {
-        oversBalls = 120;
-        wickets = Math.round(clamp(wickets, 4, 8));
-      }
-    }
-  } else if (wickets === 10) {
-    oversBalls = Math.round(clamp(86 + total * 0.12 + randomBetween(-12, 10), 54, 119));
+  markBatterActive(batting, strikerIndex);
+  if (nonStrikerIndex !== strikerIndex) {
+    markBatterActive(batting, nonStrikerIndex);
   }
 
-  const overs = formatOversFromBalls(oversBalls);
-  const wicketsLost = wickets;
-  const notOutCount = wicketsLost === 10 ? 1 : 2;
-  const didBatCount = Math.min(battingOrder.length, wicketsLost + notOutCount);
-  const activeBatters = battingOrder.slice(0, didBatCount);
-  const activeModifiers = battingModifiers.slice(0, didBatCount);
-  const battingWeights = normalizeShares(activeBatters.map((playerData, index) => {
-    const failureRisk = getDismissalRisk(playerData, bowlingTeam.attackProfile, pitch, index);
-    const basePhaseBalls = estimatePhaseBalls(index, didBatCount, oversBalls);
-    const deathOversShare = Math.max(0, (basePhaseBalls - Math.max(0, oversBalls - 24)) / Math.max(1, basePhaseBalls));
-    const composureFactor = 0.94 + ((playerData.ratings.composure - 50) / 100) * 0.16;
-    const battingShareSkillFactor = clamp(0.68 + ((playerData.ratings.batting - 60) / 35) * 0.38, 0.52, 1.2);
-    const upside = randomBetween(
-      playerData.ratings.batting >= 85 ? 0.58 : playerData.ratings.batting >= 75 ? 0.46 : 0.34,
-      playerData.ratings.batting >= 90 ? 1.26 : playerData.ratings.batting >= 80 ? 1.1 : playerData.ratings.batting >= 70 ? 0.94 : 0.82
-    );
-    const failureChance = clamp(
-      failureRisk +
-      Math.max(0, 76 - playerData.ratings.batting) * 0.004 +
-      (index < 3 && playerData.ratings.batting < 78 ? 0.07 : 0),
-      0.06,
-      0.72
-    );
-    const collapse = Math.random() < failureChance
-      ? randomBetween(
-        playerData.ratings.batting >= 85 ? 0.14 : playerData.ratings.batting >= 75 ? 0.08 : 0.03,
-        playerData.ratings.batting >= 85 ? 0.42 : playerData.ratings.batting >= 75 ? 0.32 : 0.24
-      )
-      : 1;
-    return Math.max(0.2, playerData.ratings.batting * battingShareSkillFactor * activeModifiers[index] * composureFactor * upside * collapse);
-  }));
-
-  let assignedRuns = 0;
-  let assignedBalls = 0;
-  const batting = battingOrder.map((playerData, index) => {
-    if (index >= didBatCount) {
-      return { name: playerData.name, didBat: false, runs: 0, balls: 0, notOut: false };
+  for (let overIndex = 0; overIndex < 20; overIndex += 1) {
+    if (wicketsLost >= 10 || (chasing && target && total >= target)) {
+      break;
     }
 
-    const localIndex = index;
-    const remainingRuns = total - assignedRuns;
-    const remainingBalls = oversBalls - assignedBalls;
-    const remainingBatters = didBatCount - localIndex;
-    const notOut = localIndex >= didBatCount - notOutCount;
-    const projectedEntryBalls = estimatePhaseBalls(localIndex, didBatCount, oversBalls);
-    const deathOversShare = Math.max(0, (projectedEntryBalls - Math.max(0, oversBalls - 24)) / Math.max(1, projectedEntryBalls));
-    const liveDeathOvers = remainingBalls <= 24;
-    const liveClosingOvers = remainingBalls <= 36;
-    const survivalGear = 1 + ((playerData.ratings.composure - 50) / 100) * 0.18;
-    const boundaryGear = 1 + ((playerData.ratings.intent - 50) / 100) * (0.03 + deathOversShare * 0.12);
-    const baseOrderBallBias = localIndex < 3 ? 1.02 : localIndex < 4 ? 0.94 : localIndex < 7 ? 0.82 : 0.66;
-    const battingQualityBallBias = clamp(0.78 + ((playerData.ratings.batting - 50) / 40) * 0.22, 0.72, 1.12);
-    const topOrderControlTax = localIndex < 3 && playerData.ratings.batting < 78
-      ? clamp(0.74 + ((playerData.ratings.batting - 60) / 18) * 0.14, 0.72, 0.92)
-      : 1;
-    const orderBallBias = baseOrderBallBias * battingQualityBallBias * topOrderControlTax;
-    const deathOversSpecialistRisk = (deathOversShare > 0.42 || liveDeathOvers) && localIndex >= 5 && playerData.ratings.batting < 60;
-    const lowOrderStrikeRotator = (deathOversShare > 0.3 || liveClosingOvers) && localIndex >= 5 && playerData.ratings.batting < 70;
-    const sub85FinisherLimiter = localIndex >= 4 && playerData.ratings.batting < 85;
-    const sub85LateLimiter = sub85FinisherLimiter && (deathOversShare > 0.24 || liveClosingOvers);
-    const topOrderRunFloor = localIndex < 4
-      ? playerData.ratings.batting >= 84 ? 4 : playerData.ratings.batting >= 76 ? 2 : 0
-      : 0;
-    const baseMinRuns = !notOut && Math.random() < 0.4 ? 0 : topOrderRunFloor;
-    const maxBallsForBatter = localIndex === didBatCount - 1
-      ? Math.max(1, remainingBalls)
-      : Math.max(1, remainingBalls - (remainingBatters - 1));
-    const lowOrderBallCap = localIndex >= 5 && playerData.ratings.batting < 70
-      ? (playerData.ratings.batting < 60 ? 10 : 14)
-      : maxBallsForBatter;
-    const sub85BallCap = sub85FinisherLimiter
-      ? (playerData.ratings.batting < 75 ? (liveDeathOvers ? 4 : liveClosingOvers ? 5 : 6) : (liveDeathOvers ? 5 : liveClosingOvers ? 6 : 7))
-      : maxBallsForBatter;
-    const effectiveMaxBalls = lowOrderStrikeRotator
-      ? Math.min(maxBallsForBatter, liveDeathOvers ? (deathOversSpecialistRisk ? 1 : 3) : deathOversSpecialistRisk ? 2 : 4)
-      : Math.min(maxBallsForBatter, lowOrderBallCap, sub85BallCap);
-    const lowOrderCameoCap = localIndex >= 5 && playerData.ratings.batting < 70
-      ? (playerData.ratings.batting < 60 ? 8 : 12)
-      : Number.POSITIVE_INFINITY;
-    const sub85CameoCap = sub85FinisherLimiter
-      ? (playerData.ratings.batting < 75 ? (sub85LateLimiter ? 11 : 13) : (sub85LateLimiter ? 14 : 16))
-      : Number.POSITIVE_INFINITY;
-    const lowOrderRunRateCap = localIndex >= 5 && playerData.ratings.batting < 70
-      ? (liveDeathOvers ? (playerData.ratings.batting < 60 ? 1.8 : 2.1) : liveClosingOvers ? (playerData.ratings.batting < 60 ? 1.9 : 2.2) : (playerData.ratings.batting < 60 ? 2 : 2.25))
-      : 6;
-    const sub85RunRateCap = sub85FinisherLimiter
-      ? (liveDeathOvers ? (playerData.ratings.batting < 75 ? 1.9 : 2.05) : liveClosingOvers ? (playerData.ratings.batting < 75 ? 2 : 2.15) : (playerData.ratings.batting < 75 ? 2.05 : 2.2))
-      : 6;
-    let runs = localIndex === didBatCount - 1
-      ? Math.max(0, remainingRuns)
-      : Math.min(
-        Math.max(baseMinRuns, Math.round(total * battingWeights[localIndex] * boundaryGear)),
-        Math.max(0, remainingRuns - (remainingBatters - 1) * 0)
+    const currentBowler = resolveBowlerForOver(bowlingTeam, overIndex, oversByBowler, pitch, battingOrder);
+    if (!currentBowler) {
+      break;
+    }
+
+    const bowlerCard = ensureBowlingCardEntry(bowlingCard, currentBowler.name);
+    let legalBallsThisOver = 0;
+
+    while (legalBallsThisOver < 6) {
+      if (wicketsLost >= 10 || (chasing && target && total >= target)) {
+        break;
+      }
+
+      const striker = battingOrder[strikerIndex];
+      const strikerEntry = batting[strikerIndex];
+      const deathShare = overIndex >= 16 ? 1 : overIndex >= 14 ? 0.65 : overIndex >= 6 ? 0.28 : 0.12;
+      const phaseBoost = overIndex < 6 ? 0.08 : overIndex >= 15 ? 0.12 : 0;
+      const wicketsInHand = Math.max(0, 10 - wicketsLost);
+      const battingComposition = buildBattingComposition(battingOrder.slice(strikerIndex, Math.min(battingOrder.length, nextBatterIndex + 3)));
+      const battingModifier = getBattingConditionsModifier(striker, bowlingTeam.attackProfile, pitch, strikerIndex);
+      const bowlingModifier = getBowlingConditionsModifier(currentBowler, pitch, battingComposition);
+      const deathFactor = getDeathBowlingFactor(currentBowler, deathShare);
+      const oversRemaining = Math.max(1, 20 - overIndex - (legalBallsThisOver / 6));
+      const requiredRate = chasing && target ? Math.max(0, (target - total) / oversRemaining) : 0;
+      const intentPressure = chasing && target
+        ? Math.max(0, (requiredRate - 8) * 0.045)
+        : 0;
+      const battingEdge = (
+        (striker.ratings.batting - currentBowler.ratings.bowling) * 0.012 +
+        (striker.ratings.intent - 55) * 0.0035 +
+        (striker.ratings.composure - 55) * 0.0025 +
+        (battingModifier - 1) * 0.75 +
+        phaseBoost +
+        intentPressure +
+        Math.max(0, wicketsInHand - 4) * 0.01
       );
-    const chasePressureNow = chasing ? ((target - assignedRuns) / Math.max(1, remainingBalls / 6)) : 0;
-    const forceRotationSingle =
-      chasing &&
-      deathOversShare > 0.2 &&
-      chasePressureNow > 8.5 &&
-      runs === 0 &&
-      remainingRuns > 0;
-    if (forceRotationSingle) {
-      runs = 1;
-    }
-    if (deathOversSpecialistRisk && !notOut && Math.random() < (liveDeathOvers ? 0.82 : 0.72)) {
-      runs = Math.min(runs, Math.random() < 0.8 ? 0 : 1);
-    } else if (lowOrderStrikeRotator && remainingRuns > 0 && Math.random() < 0.86) {
-      runs = Math.max(1, Math.min(runs, Math.random() < 0.78 ? 1 : 2));
-    }
-    if (lowOrderCameoCap !== Number.POSITIVE_INFINITY) {
-      runs = Math.min(runs, lowOrderCameoCap);
-      if (playerData.ratings.batting < 60 && Math.random() < (remainingBalls <= 30 ? 0.88 : 0.74)) {
-        runs = Math.min(runs, 4);
-      } else if (playerData.ratings.batting < 70 && Math.random() < (remainingBalls <= 30 ? 0.76 : 0.58)) {
-        runs = Math.min(runs, 7);
+      const bowlingEdge = (
+        (bowlingModifier - 1) * 0.55 +
+        (deathFactor.economyBoost - 1) * 0.42 +
+        (currentBowler.ratings.econ - 55) * 0.0025
+      );
+      const extrasChance = clamp(
+        0.02 +
+        Math.max(0, 58 - currentBowler.ratings.econ) * 0.0008 +
+        Math.max(0, pitch.scoringBoost) * 0.0004,
+        0.012,
+        0.065
+      );
+
+      if (Math.random() < extrasChance) {
+        const isWide = Math.random() < 0.72;
+        total += 1;
+        bowlerCard.runs += 1;
+        extrasBreakdown.total += 1;
+        if (isWide) {
+          extrasBreakdown.wides += 1;
+        } else {
+          extrasBreakdown.noBalls += 1;
+        }
+        continue;
+      }
+
+      legalBallsThisOver += 1;
+      oversBalls += 1;
+      strikerEntry.didBat = true;
+      strikerEntry.balls += 1;
+      bowlerCard.balls += 1;
+
+      const dismissalChance = clamp(
+        0.012 +
+        getDismissalRisk(striker, bowlingTeam.attackProfile, pitch, strikerIndex) * 0.05 +
+        Math.max(0, currentBowler.ratings.wkts - 60) * 0.0009 +
+        (deathFactor.wicketBoost - 1) * 0.045 -
+        Math.max(0, striker.ratings.composure - 65) * 0.00055 -
+        Math.max(0, striker.ratings.batting - 78) * 0.00035 +
+        (requiredRate > 10.5 ? 0.01 : 0),
+        0.008,
+        0.16
+      );
+
+      if (Math.random() < dismissalChance) {
+        wicketsLost += 1;
+        bowlerCard.wickets += 1;
+        if (wicketsLost >= 10) {
+          break;
+        }
+        strikerIndex = nextBatterIndex;
+        nextBatterIndex += 1;
+        markBatterActive(batting, strikerIndex);
+        continue;
+      }
+
+      const shotRuns = resolveBallRuns({
+        striker,
+        currentBowler,
+        pitch,
+        battingEdge,
+        bowlingEdge,
+        deathShare,
+        requiredRate,
+        wicketsLost
+      });
+
+      total += shotRuns;
+      strikerEntry.runs += shotRuns;
+      bowlerCard.runs += shotRuns;
+
+      if (shotRuns % 2 === 1) {
+        [strikerIndex, nonStrikerIndex] = [nonStrikerIndex, strikerIndex];
       }
     }
-    if (sub85CameoCap !== Number.POSITIVE_INFINITY) {
-      runs = Math.min(runs, sub85CameoCap);
-      if (playerData.ratings.batting < 75 && Math.random() < (remainingBalls <= 30 ? 0.9 : 0.76)) {
-        runs = Math.min(runs, 7);
-      } else if (playerData.ratings.batting < 85 && Math.random() < (remainingBalls <= 30 ? 0.84 : 0.72)) {
-        runs = Math.min(runs, 10);
-      }
-    }
-    if (localIndex >= 5 && playerData.ratings.batting < 70) {
-      runs = Math.min(runs, Math.round(effectiveMaxBalls * lowOrderRunRateCap));
-    } else if (sub85FinisherLimiter) {
-      runs = Math.min(runs, Math.round(effectiveMaxBalls * sub85RunRateCap));
-    }
-    if (sub85FinisherLimiter && runs >= 18 && Math.random() < (sub85LateLimiter ? 0.9 : 0.78)) {
-      runs = Math.min(runs, playerData.ratings.batting < 75 ? 9 : 12);
-    }
-    if (sub85FinisherLimiter && runs >= 10 && Math.random() < (sub85LateLimiter ? 0.82 : 0.66)) {
-      runs = Math.min(runs, playerData.ratings.batting < 75 ? 6 : 8);
-    } else if (sub85FinisherLimiter && runs >= 5 && Math.random() < (sub85LateLimiter ? 0.72 : 0.58)) {
-      runs = Math.min(runs, playerData.ratings.batting < 75 ? 3 : 4);
-    }
-    runs = Math.min(runs, effectiveMaxBalls * 6);
-    const strikeRateFloor = deathOversShare > 0 ? 100 : 90;
-    const strikeRate = Math.max(strikeRateFloor, playerData.batting.sr[2] || 110);
-    const balls = localIndex === didBatCount - 1
-      ? Math.min(
-        Math.max(Math.ceil(runs / 6), 1),
-        effectiveMaxBalls
-      )
-      : Math.min(
-        Math.max(
-          runs === 0 ? 1 : 2,
-          Math.ceil(runs / 6),
-          Math.round((runs / strikeRate) * 100 * (1 / survivalGear) * orderBallBias * randomBetween(0.86, 1.16))
-        ),
-        effectiveMaxBalls
-      );
-    const adjustedBalls = lowOrderStrikeRotator && runs <= 2
-      ? Math.min(balls, Math.max(1, runs), deathOversSpecialistRisk ? 1 : 2)
-      : balls;
-    const scrappyBallFloor = sub85FinisherLimiter
-      ? runs <= 1
-        ? 1
-        : runs <= 4
-          ? runs
-          : runs <= 8
-            ? Math.max(4, Math.ceil(runs * 0.8))
-            : Math.max(6, Math.ceil(runs * 0.7))
-      : 1;
-    const realisticBalls = sub85FinisherLimiter
-      ? Math.min(effectiveMaxBalls, Math.max(adjustedBalls, scrappyBallFloor))
-      : adjustedBalls;
 
-    assignedRuns += runs;
-    assignedBalls += realisticBalls;
-
-    return {
-      name: playerData.name,
-      didBat: true,
-      runs,
-      balls: realisticBalls,
-      notOut
-    };
-  });
-  const notOutIndices = pickNotOutIndices(batting.slice(0, didBatCount), activeModifiers, notOutCount, wicketsLost);
-  batting.forEach((entry, index) => {
-    if (entry.didBat) {
-      entry.balls = Math.max(entry.balls, Math.ceil(entry.runs / 6));
-      entry.notOut = notOutIndices.includes(index);
+    if (legalBallsThisOver > 0) {
+      oversByBowler[currentBowler.name] = (oversByBowler[currentBowler.name] || 0) + 1;
     }
-  });
-  reconcileBattingBalls(batting, oversBalls);
-  const battingRunsTotal = batting.reduce((sum, entry) => sum + (entry.didBat ? entry.runs : 0), 0);
-  const extrasBreakdown = estimateInningsExtras(oversBalls, wicketsLost, pitch);
-  let inningsTotal = battingRunsTotal + extrasBreakdown.total;
-  if (chasing && chaseSucceeded && target && desiredWinningTotal !== null) {
-    const boundedWinningTotal = clamp(desiredWinningTotal, target, target + 5);
-    if (inningsTotal !== boundedWinningTotal) {
-      adjustInningsTotal(batting, extrasBreakdown, boundedWinningTotal - inningsTotal);
-      inningsTotal = batting.reduce((sum, entry) => sum + (entry.didBat ? entry.runs : 0), 0) + extrasBreakdown.total;
+
+    if (wicketsLost < 10 && !(chasing && target && total >= target)) {
+      [strikerIndex, nonStrikerIndex] = [nonStrikerIndex, strikerIndex];
     }
   }
 
-  const bowlersAvailable = (bowlingTeam.bowlingPlayers || bowlingTeam.players)
-    .filter((playerData) => playerData.ratings.bowling >= 40 || isBowler(playerData) || isAllRounder(playerData))
-    .sort((a, b) => b.ratings.bowling - a.ratings.bowling);
-  const minimumBowlers = Math.ceil(oversBalls / 24);
-  const targetBowlerCount = oversBalls >= 114
-    ? randomInt(6, Math.min(7, bowlersAvailable.length))
-    : oversBalls >= 84
-      ? randomInt(5, Math.min(6, bowlersAvailable.length))
-      : randomInt(4, Math.min(5, bowlersAvailable.length));
-  const bowlerCount = Math.min(
-    bowlersAvailable.length,
-    Math.max(minimumBowlers, targetBowlerCount || minimumBowlers)
-  );
-  const bowlingCore = bowlersAvailable.slice(0, bowlerCount);
-  const bowlingWeights = normalizeShares(bowlingCore.map((playerData, index) =>
-    Math.max(0.2, playerData.ratings.bowling * getBowlingConditionsModifier(playerData, pitch, battingComposition) - index * 1.5)
-  ));
-  const bowlingSpellBalls = allocateBowlingBalls(oversBalls, bowlingCore.length, bowlingWeights);
-  const deathOversBalls = allocateDeathOversBalls(bowlingCore, bowlingSpellBalls, oversBalls);
+  if (wicketsLost < 10) {
+    if (batting[strikerIndex]) {
+      batting[strikerIndex].didBat = true;
+      batting[strikerIndex].notOut = true;
+    }
+    if (batting[nonStrikerIndex] && nonStrikerIndex !== strikerIndex) {
+      batting[nonStrikerIndex].didBat = true;
+      batting[nonStrikerIndex].notOut = true;
+    }
+  }
 
-  const rawBowlingRuns = bowlingCore.map((playerData, index) => {
-    const oversValue = bowlingSpellBalls[index] / 6;
-    const baseEconomy = playerData.bowling.eco[2] || weightedAverage(playerData.bowling.eco, [0.2, 0.3, 0.5], true) || 8.2;
-    const conditionFactor = getBowlingConditionsModifier(playerData, pitch, battingComposition);
-    const deathShare = deathOversBalls[index] / Math.max(1, bowlingSpellBalls[index]);
-    const deathFactor = getDeathBowlingFactor(playerData, deathShare);
-    const adjustedEconomy = clamp(baseEconomy / conditionFactor / deathFactor.economyBoost * randomBetween(0.92, 1.08), 4.2, 13.5);
-    return Math.max(1, oversValue * adjustedEconomy);
-  });
-  const totalRawRuns = rawBowlingRuns.reduce((sum, value) => sum + value, 0) || 1;
-  let bowlingRunsAssigned = 0;
-  let bowlingWicketsAssigned = 0;
-  const bowling = bowlingCore.map((playerData, index) => {
-    const remainingRuns = inningsTotal - bowlingRunsAssigned;
-    const remainingWickets = wicketsLost - bowlingWicketsAssigned;
-    const remainingBowlers = bowlingCore.length - index;
-    const deathShare = deathOversBalls[index] / Math.max(1, bowlingSpellBalls[index]);
-    const deathFactor = getDeathBowlingFactor(playerData, deathShare);
-    const runs = index === bowlingCore.length - 1
-      ? Math.max(0, remainingRuns)
-      : Math.min(
-        Math.max(1, Math.round((rawBowlingRuns[index] / totalRawRuns) * inningsTotal)),
-        Math.max(0, remainingRuns - (remainingBowlers - 1))
-      );
-    const wicketsForBowler = index === bowlingCore.length - 1
-      ? Math.max(0, remainingWickets)
-      : Math.min(
-        Math.max(0, Math.round(wicketsLost * bowlingWeights[index] * deathFactor.wicketBoost * randomBetween(0.7, 1.18))),
-        Math.max(0, remainingWickets)
-      );
-    bowlingRunsAssigned += runs;
-    bowlingWicketsAssigned += wicketsForBowler;
-    return {
-      name: playerData.name,
-      overs: formatOversFromBalls(bowlingSpellBalls[index]),
-      runs,
-      wickets: wicketsForBowler
-    };
-  }).filter((entry) => oversToBalls(entry.overs) > 0);
+  const bowling = [...bowlingCard.values()]
+    .map((entry) => ({
+      name: entry.name,
+      overs: formatOversFromBalls(entry.balls),
+      runs: entry.runs,
+      wickets: entry.wickets
+    }))
+    .filter((entry) => oversToBalls(entry.overs) > 0);
 
   return {
     teamCode: battingTeam.code,
-    total: inningsTotal,
+    total,
     extras: extrasBreakdown.total,
     extrasBreakdown,
     wickets: wicketsLost,
-    overs,
+    overs: formatOversFromBalls(oversBalls),
     batting,
     bowling
   };
+}
+
+function markBatterActive(batting, batterIndex) {
+  if (batterIndex < 0 || batterIndex >= batting.length) {
+    return;
+  }
+  batting[batterIndex].didBat = true;
+}
+
+function buildFallbackBowlingPlan(players) {
+  const bowlers = (players || [])
+    .filter((playerData) => isPrimaryBowler(playerData))
+    .sort((a, b) => b.ratings.bowling - a.ratings.bowling);
+  if (!bowlers.length) {
+    return Array(20).fill("");
+  }
+
+  const plan = [];
+  const counts = {};
+  for (let overIndex = 0; overIndex < 20; overIndex += 1) {
+    const nextBowler = bowlers.find((playerData) => (
+      (counts[playerData.name] || 0) < 4 &&
+      plan[overIndex - 1] !== playerData.name
+    )) || bowlers[overIndex % bowlers.length];
+    plan.push(nextBowler.name);
+    counts[nextBowler.name] = (counts[nextBowler.name] || 0) + 1;
+  }
+  return plan;
+}
+
+function isPaceBowler(playerData) {
+  const bowlingTypes = getBowlingTypes(playerData);
+  return bowlingTypes.includes("leftArmPace") || bowlingTypes.includes("rightArmPace") || bowlingTypes.includes("hitTheDeck");
+}
+
+function isPrimaryBowler(playerData) {
+  return (playerData?.ratings?.bowling || 0) >= 40 || isBowler(playerData) || isAllRounder(playerData);
+}
+
+function isEligibleBowler(playerData) {
+  return isPrimaryBowler(playerData) || (playerData?.ratings?.bowling || 0) > 25;
+}
+
+function ensureBowlingCardEntry(bowlingCard, bowlerName) {
+  if (!bowlingCard.has(bowlerName)) {
+    bowlingCard.set(bowlerName, {
+      name: bowlerName,
+      balls: 0,
+      runs: 0,
+      wickets: 0
+    });
+  }
+  return bowlingCard.get(bowlerName);
+}
+
+function resolveBowlerForOver(bowlingTeam, overIndex, oversByBowler, pitch, battingOrder) {
+  const bowlersAvailable = (bowlingTeam.bowlingPlayers || bowlingTeam.players || [])
+    .filter((playerData) => isEligibleBowler(playerData))
+    .sort((a, b) => b.ratings.bowling - a.ratings.bowling);
+  if (!bowlersAvailable.length) {
+    return null;
+  }
+
+  const bowlingPlan = Array.isArray(bowlingTeam.bowlingPlan) ? bowlingTeam.bowlingPlan : [];
+  const plannedBowlerName = bowlingPlan[overIndex];
+  const plannedBowler = bowlersAvailable.find((playerData) => playerData.name === plannedBowlerName);
+  if (plannedBowler) {
+    return plannedBowler;
+  }
+
+  const recentName = overIndex > 0 ? bowlingPlan[overIndex - 1] : null;
+  const battingComposition = buildBattingComposition(battingOrder.slice(0, 7));
+  return bowlersAvailable.find((playerData) => (
+    (oversByBowler[playerData.name] || 0) < 4 &&
+    playerData.name !== recentName
+  )) || [...bowlersAvailable].sort((a, b) => (
+    getBowlingConditionsModifier(b, pitch, battingComposition) - getBowlingConditionsModifier(a, pitch, battingComposition)
+  ))[0];
+}
+
+function resolveBallRuns({ striker, currentBowler, pitch, battingEdge, bowlingEdge, deathShare, requiredRate, wicketsLost }) {
+  const baseRunRate = clamp(
+    0.72 +
+    pitch.scoringBoost / 42 +
+    battingEdge -
+    bowlingEdge +
+    Math.max(0, requiredRate - 7.5) * 0.04 -
+    Math.max(0, 6 - wicketsLost) * 0.008,
+    0.35,
+    2.6
+  );
+  const boundaryBias = clamp(
+    0.12 +
+    (striker.ratings.intent - 50) * 0.0034 +
+    (striker.ratings.batting - 55) * 0.0022 +
+    deathShare * 0.1 +
+    Math.max(0, requiredRate - 9) * 0.018,
+    0.08,
+    0.48
+  );
+  const sixBias = clamp(
+    0.16 +
+    (striker.ratings.intent - 55) * 0.003 +
+    deathShare * 0.14 -
+    Math.max(0, currentBowler.ratings.bowling - 78) * 0.0022,
+    0.08,
+    0.58
+  );
+  const dotBias = clamp(
+    0.32 +
+    Math.max(0, currentBowler.ratings.bowling - striker.ratings.batting) * 0.0045 -
+    (striker.ratings.composure - 55) * 0.0022 -
+    Math.max(0, requiredRate - 8.5) * 0.02,
+    0.14,
+    0.6
+  );
+  const roll = Math.random();
+
+  if (roll < dotBias) {
+    return 0;
+  }
+  if (roll < dotBias + 0.34) {
+    return 1;
+  }
+  if (roll < dotBias + 0.5) {
+    return 2;
+  }
+  if (roll < dotBias + 0.53) {
+    return 3;
+  }
+  if (roll < dotBias + 0.53 + boundaryBias) {
+    return Math.random() < sixBias ? 6 : 4;
+  }
+
+  return baseRunRate > 1.55 ? 2 : 1;
 }
 
 function adjustInningsTotal(batting, extrasBreakdown, delta) {
@@ -3251,7 +3518,6 @@ function initMakePlayerPage() {
         if (status) {
           status.textContent = `Added ${preview.name} to ${teamCode}. Saved in this browser.`;
         }
-        launchMakePlayerAddChecks();
         renderMakePlayerCustomList();
         renderAll();
         renderMakePlayerPreview();
@@ -4056,19 +4322,6 @@ function launchGameOutcomeSymbols(isWin) {
   });
 }
 
-function launchMakePlayerAddChecks() {
-  launchOutcomeSymbolBurst({
-    isWin: true,
-    pieces: 8,
-    symbol: "\u2705",
-    durationMin: 1700,
-    durationRange: 700,
-    horizontalInset: 20,
-    driftRange: 120,
-    delayRange: 140
-  });
-}
-
 function launchOutcomeSymbolBurst({
   isWin,
   pieces,
@@ -4171,7 +4424,7 @@ function inferPlayerProfile(playerData) {
 
 function buildAttackProfile(players) {
   const bowlers = players
-    .filter((playerData) => playerData.ratings?.bowling >= 40 || isBowler(playerData) || isAllRounder(playerData))
+    .filter((playerData) => isEligibleBowler(playerData))
     .sort((a, b) => b.ratings.bowling - a.ratings.bowling)
     .slice(0, 6);
   const types = {

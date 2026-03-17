@@ -1056,6 +1056,10 @@ select option {
   margin-bottom: 14px;
 }
 
+#bowling-plan-panel {
+  margin-top: 18px;
+}
+
 .lineup-helper,
 .lineup-warning {
   display: grid;
@@ -1074,6 +1078,22 @@ select option {
   letter-spacing: 0.04em;
 }
 
+.lineup-helper-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.lineup-helper-row > div {
+  display: grid;
+  gap: 6px;
+}
+
+.lineup-helper-action {
+  align-self: center;
+  white-space: nowrap;
+}
+
 .lineup-warning {
   border-color: rgba(245, 196, 81, 0.7);
   box-shadow: 0 0 0 1px rgba(245, 196, 81, 0.2);
@@ -1090,6 +1110,66 @@ select option {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
+}
+
+.bowling-plan-card {
+  display: grid;
+  gap: 14px;
+}
+
+.bowling-plan-modal {
+  width: min(980px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+}
+
+.bowling-plan-head {
+  display: grid;
+  gap: 6px;
+}
+
+.bowling-plan-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.bowling-plan-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.bowling-plan-chip strong {
+  color: var(--text);
+}
+
+.bowling-plan-chip.is-maxed {
+  border-color: rgba(245, 196, 81, 0.6);
+  background: rgba(245, 196, 81, 0.09);
+}
+
+.bowling-plan-chip.is-over-limit {
+  border-color: rgba(255, 99, 99, 0.7);
+  background: rgba(255, 99, 99, 0.12);
+  color: #ffd4d4;
+}
+
+.bowling-plan-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.bowling-plan-slot {
+  padding: 14px 16px;
 }
 
 .lineup-slot {
