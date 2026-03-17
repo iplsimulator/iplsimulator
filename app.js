@@ -409,61 +409,133 @@ function buildDefaultCustomSelections() {
 function buildDefaultBowlingPlan(teamCode) {
   const team = findTeam(teamCode);
   if (!team) return Array(20).fill("");
-  const lineup = getLineupForTeam(teamCode)
+  const lineupPlayers = getLineupForTeam(teamCode)
     .slice(0, 12)
     .map((name) => team.players.find((playerData) => playerData.name === name))
-    .filter((playerData) => playerData && isPrimaryBowler(playerData))
-    .sort((a, b) => {
-      const deathDelta = Number(Boolean(b.roleProfile?.deathBowler || inferRoleProfile(b).deathBowler)) -
-        Number(Boolean(a.roleProfile?.deathBowler || inferRoleProfile(a).deathBowler));
-      if (deathDelta !== 0) return deathDelta;
-      return b.ratings.bowling - a.ratings.bowling;
-    });
+    .filter(Boolean);
 
-  if (!lineup.length) {
+  return buildAutoBowlingPlan(lineupPlayers);
+}
+
+function buildAutoBowlingPlan(players) {
+  const rotation = getAutoBowlingRotation(players);
+  if (!rotation.length) {
     return Array(20).fill("");
   }
 
   const plan = Array(20).fill("");
-  const overCounts = new Map();
-  const preferredDeath = lineup.find((playerData) => playerData.roleProfile?.deathBowler || inferRoleProfile(playerData).deathBowler) || lineup[0];
-  const paceCore = lineup.filter((playerData) => isPaceBowler(playerData));
-  const openingCore = (paceCore.length ? paceCore : lineup).slice(0, Math.min(4, paceCore.length || lineup.length));
-  const middleCore = lineup.slice(0, Math.min(6, lineup.length));
+  const quotas = createBowlingRotationQuotas(rotation);
+  const lockedLeaders = rotation.slice(0, Math.min(2, rotation.length)).filter((playerData) => quotas.get(playerData.name) === 4);
+  const openingPacers = rotation.filter((playerData) => isPaceBowler(playerData));
+  const anchorOversByLeader = [
+    [16, 18],
+    [17, 19]
+  ];
 
-  const assignOver = (overIndex, candidates) => {
-    const chosen = candidates
-      .filter(Boolean)
-      .find((playerData) => {
-        const bowled = overCounts.get(playerData.name) || 0;
-        if (bowled >= 4) return false;
-        if (overIndex > 0 && plan[overIndex - 1] === playerData.name) return false;
-        return true;
-      }) || candidates.find(Boolean);
-    if (!chosen) return;
-    plan[overIndex] = chosen.name;
-    overCounts.set(chosen.name, (overCounts.get(chosen.name) || 0) + 1);
-  };
-
-  [0, 1, 2, 3].forEach((overIndex) => {
-    const ordered = [...openingCore].sort((a, b) => (overCounts.get(a.name) || 0) - (overCounts.get(b.name) || 0) || b.ratings.bowling - a.ratings.bowling);
-    assignOver(overIndex, ordered);
+  lockedLeaders.forEach((playerData, leaderIndex) => {
+    anchorOversByLeader[leaderIndex].forEach((overIndex) => {
+      if (canAssignBowlerToOver(plan, overIndex, playerData.name) && (quotas.get(playerData.name) || 0) > 0) {
+        plan[overIndex] = playerData.name;
+        quotas.set(playerData.name, (quotas.get(playerData.name) || 0) - 1);
+      }
+    });
   });
 
-  for (let overIndex = 4; overIndex < 16; overIndex += 1) {
-    const ordered = [...middleCore].sort((a, b) => (overCounts.get(a.name) || 0) - (overCounts.get(b.name) || 0) || b.ratings.bowling - a.ratings.bowling);
-    assignOver(overIndex, ordered);
+  const fillOrder = [...[0, 1, 2, 3], ...Array.from({ length: 12 }, (_, index) => index + 4), ...[16, 17, 18, 19]];
+  fillOrder.forEach((overIndex) => {
+    if (plan[overIndex]) {
+      return;
+    }
+    const chosen = pickBowlerForAutoPlan(rotation, quotas, plan, overIndex, openingPacers);
+    if (!chosen) {
+      return;
+    }
+    plan[overIndex] = chosen.name;
+    quotas.set(chosen.name, (quotas.get(chosen.name) || 0) - 1);
+  });
+
+  return plan;
+}
+
+function getAutoBowlingRotation(players, maxBowlers = 6) {
+  return (players || [])
+    .filter((playerData) => playerData && isEligibleBowler(playerData))
+    .sort((a, b) => b.ratings.bowling - a.ratings.bowling || b.ratings.econ - a.ratings.econ || b.ratings.wkts - a.ratings.wkts)
+    .slice(0, Math.min(maxBowlers, players?.length || 0));
+}
+
+function createBowlingRotationQuotas(rotation) {
+  const quotas = new Map(rotation.map((playerData) => [playerData.name, 0]));
+  const lockedLeaders = rotation.slice(0, Math.min(2, rotation.length));
+  let assignedOvers = 0;
+
+  lockedLeaders.forEach((playerData) => {
+    quotas.set(playerData.name, 4);
+    assignedOvers += 4;
+  });
+
+  const supportBowlers = rotation.slice(lockedLeaders.length);
+  let supportIndex = 0;
+  while (assignedOvers < 20 && supportBowlers.length) {
+    const playerData = supportBowlers[supportIndex % supportBowlers.length];
+    const currentQuota = quotas.get(playerData.name) || 0;
+    if (currentQuota < 4) {
+      quotas.set(playerData.name, currentQuota + 1);
+      assignedOvers += 1;
+    }
+    supportIndex += 1;
+    if (supportIndex > supportBowlers.length * 20) {
+      break;
+    }
   }
 
-  [16, 17, 18, 19].forEach((overIndex) => {
-    const ordered = [
-      preferredDeath,
-      ...lineup.filter((playerData) => playerData.name !== preferredDeath.name)
-    ].sort((a, b) => (overCounts.get(a.name) || 0) - (overCounts.get(b.name) || 0) || b.ratings.bowling - a.ratings.bowling);
-    assignOver(overIndex, ordered);
-  });
+  while (assignedOvers < 20) {
+    const nextBowler = rotation.find((playerData) => (quotas.get(playerData.name) || 0) < 4);
+    if (!nextBowler) {
+      break;
+    }
+    quotas.set(nextBowler.name, (quotas.get(nextBowler.name) || 0) + 1);
+    assignedOvers += 1;
+  }
 
-  return plan.map((name, index) => name || lineup[index % lineup.length].name);
+  return quotas;
+}
+
+function canAssignBowlerToOver(plan, overIndex, bowlerName) {
+  return plan[overIndex] !== bowlerName &&
+    plan[overIndex - 1] !== bowlerName &&
+    plan[overIndex + 1] !== bowlerName;
+}
+
+function pickBowlerForAutoPlan(rotation, quotas, plan, overIndex, openingPacers = []) {
+  const remainingPacers = openingPacers
+    .filter((playerData) => (quotas.get(playerData.name) || 0) > 0)
+    .filter((playerData) => canAssignBowlerToOver(plan, overIndex, playerData.name));
+  const preferredPool = overIndex < 4 && remainingPacers.length ? remainingPacers : rotation;
+  const candidates = preferredPool
+    .filter((playerData) => (quotas.get(playerData.name) || 0) > 0)
+    .filter((playerData) => canAssignBowlerToOver(plan, overIndex, playerData.name))
+    .sort((a, b) => {
+      const quotaDelta = (quotas.get(b.name) || 0) - (quotas.get(a.name) || 0);
+      if (quotaDelta !== 0) return quotaDelta;
+      return getAutoPlanPhasePriority(b, overIndex) - getAutoPlanPhasePriority(a, overIndex);
+    });
+
+  return candidates[0] || null;
+}
+
+function getAutoPlanPhasePriority(playerData, overIndex) {
+  const deathBowler = Boolean(playerData.roleProfile?.deathBowler || inferRoleProfile(playerData).deathBowler);
+  const paceBowler = isPaceBowler(playerData);
+  const topRatedBoost = playerData.ratings.bowling / 100;
+
+  if (overIndex >= 16) {
+    return topRatedBoost + (deathBowler ? 1.2 : 0) + (paceBowler ? 0.25 : 0);
+  }
+  if (overIndex < 6) {
+    return topRatedBoost + (paceBowler ? 0.6 : 0);
+  }
+  return topRatedBoost + (deathBowler ? 0.15 : 0);
 }
 
 function renderDataLoadError(error) {
@@ -2488,7 +2560,7 @@ function renderStandings() {
 function renderAwards() {
   const races = [
     {
-      label: "Best Impact Player",
+      label: "Best Impact Sub",
       player: state.season.awards.impactPlayer,
       stat: state.season.awards.impactPlayer
         ? `${state.season.awards.impactPlayer.mvpScore || 0} impact`
@@ -3140,24 +3212,7 @@ function markBatterActive(batting, batterIndex) {
 }
 
 function buildFallbackBowlingPlan(players) {
-  const bowlers = (players || [])
-    .filter((playerData) => isPrimaryBowler(playerData))
-    .sort((a, b) => b.ratings.bowling - a.ratings.bowling);
-  if (!bowlers.length) {
-    return Array(20).fill("");
-  }
-
-  const plan = [];
-  const counts = {};
-  for (let overIndex = 0; overIndex < 20; overIndex += 1) {
-    const nextBowler = bowlers.find((playerData) => (
-      (counts[playerData.name] || 0) < 4 &&
-      plan[overIndex - 1] !== playerData.name
-    )) || bowlers[overIndex % bowlers.length];
-    plan.push(nextBowler.name);
-    counts[nextBowler.name] = (counts[nextBowler.name] || 0) + 1;
-  }
-  return plan;
+  return buildAutoBowlingPlan(players);
 }
 
 function isPaceBowler(playerData) {

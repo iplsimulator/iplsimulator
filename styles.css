@@ -1150,7 +1150,7 @@ select option {
   background: rgba(255, 255, 255, 0.04);
   color: var(--muted);
   font-size: 0.78rem;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .bowling-plan-chip strong {
