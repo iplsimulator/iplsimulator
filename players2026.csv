@@ -1,189 +1,189 @@
-teamCode,playerName,sourceRole,battingStyle,battingHand,bowlingType,bowlingHand,opener,deathBowl,intent,composure,bowling,econ,wkts,fielding,leadership
-CSK,Sanju Samson,Technical Opener,RHB,right,none,none,TRUE,FALSE,76,72,25,25,25,88,88
-CSK,Ayush Mhatre,Shotmaker,RHB,right,none,none,TRUE,FALSE,64,70,25,25,25,80,72
-CSK,Ruturaj Gaikwad,Technical Opener,RHB,right,none,none,TRUE,FALSE,70,75,25,25,25,90,74
-CSK,Matt Short,Control All-Rounder,RHB,right,spinner,right,TRUE,FALSE,68,64,44,45,43,80,74
-CSK,Dewald Brevis,Shotmaker,RHB,right,spinner,right,FALSE,FALSE,75,58,34,34,33,84,72
-CSK,Shivam Dube,Finishing Closer,LHB,left,none,none,FALSE,FALSE,79,62,25,25,25,78,73
-CSK,MS Dhoni,Shotmaker,RHB,right,none,none,FALSE,FALSE,73,66,25,25,25,86,98
-CSK,Anshul Kamboj,Seam All-Round Engine,RHB,right,pacer,right,FALSE,FALSE,56,63,76,80,72,76,72
-CSK,Prashant Veer,Utility Batter,RHB,right,spinner,right,FALSE,FALSE,50,56,64,65,63,78,72
-CSK,Nathan Ellis,New-Ball Seamer,RHB,right,pacer,right,FALSE,TRUE,42,48,75,76,75,74,72
-CSK,Khaleel Ahmed,Pace Enforcer,LHB,left,pacer,left,FALSE,FALSE,40,48,70,72,83,74,72
-CSK,Noor Ahmad,Attack Spinner,LHB,left,spinner,right,FALSE,FALSE,40,47,80,79,80,83,72
-CSK,Urvil Patel,Explosive Opener,RHB,right,none,none,TRUE,FALSE,74,52,25,25,25,80,72
-CSK,Jamie Overton,Seam All-Round Engine,RHB,right,pacer,right,FALSE,FALSE,68,55,67,66,68,78,74
-CSK,Gurjapneet Singh,Pace Enforcer,LHB,left,pacer,left,FALSE,FALSE,42,46,69,69,70,74,72
-CSK,Mukesh Choudhary,New-Ball Seamer,LHB,left,pacer,left,FALSE,FALSE,40,45,74,76,72,72,72
-CSK,Ramakrishna Ghosh,Batting All-Round Link,RHB,right,pacer,right,FALSE,FALSE,63,52,58,57,59,75,72
-CSK,Shreyas Gopal,Attack Spinner,RHB,right,spinner,right,FALSE,FALSE,48,50,69,71,68,76,72
-DC,Prithvi Shaw,Explosive Opener,RHB,right,none,none,TRUE,FALSE,76,56,25,25,25,78,72
-DC,Abishek Porel,Shotmaker,LHB,left,none,none,FALSE,FALSE,75,55,25,25,25,90,74
-DC,Nitish Rana,Control All-Rounder,LHB,left,spinner,left,FALSE,FALSE,69,68,38,39,37,77,74
-DC,KL Rahul,Shotmaker,RHB,right,none,none,FALSE,FALSE,70,75,25,25,25,88,90
-DC,Tristan Stubbs,Shotmaker,RHB,right,none,none,FALSE,FALSE,70,62,25,25,25,90,74
-DC,David Miller,Shotmaker,LHB,left,none,none,FALSE,FALSE,71,66,25,25,25,85,74
-DC,Ashutosh Sharma,Finishing Closer,RHB,right,none,none,FALSE,FALSE,79,56,25,25,25,78,73
-DC,Axar Patel,Control All-Rounder,LHB,left,spinner,right,FALSE,FALSE,58,69,72,72,73,83,84
-DC,Kuldeep Yadav,Attack Spinner,LHB,left,spinner,right,FALSE,FALSE,44,41,81,81,81,82,72
-DC,T Natarajan,Pace Enforcer,LHB,left,pacer,left,FALSE,TRUE,48,47,74,74,75,74,72
-DC,Mitchell Starc,New-Ball Seamer,LHB,left,pacer,right,FALSE,TRUE,48,48,75,75,75,81,78
-DC,Vipraj Nigam,Attack Spinner,RHB,right,spinner,right,FALSE,FALSE,48,50,69,70,73,77,72
-DC,Karun Nair,Run Bank Anchor,RHB,right,none,none,FALSE,FALSE,61,74,25,25,25,76,78
-DC,Kyle Jamieson,Pace Enforcer,RHB,right,pacer,right,FALSE,FALSE,48,48,71,72,74,74,72
-DC,Auqib Nabi,Pace Enforcer,RHB,right,pacer,right,FALSE,FALSE,44,44,67,72,76,75,72
-DC,Mukesh Kumar,New-Ball Seamer,RHB,right,pacer,right,FALSE,FALSE,48,47,70,70,70,70,72
-DC,Ajay Mandal,Control All-Rounder,LHB,left,spinner,left,FALSE,FALSE,50,58,66,67,65,77,72
-DC,Dushmantha Chameera,Pace Enforcer,RHB,right,pacer,right,FALSE,TRUE,42,44,73,72,75,74,72
-DC,Madhav Tiwari,Seam All-Round Engine,RHB,right,pacer,right,FALSE,FALSE,60,54,60,60,60,76,72
-DC,Sameer Rizvi,Shotmaker,RHB,right,spinner,right,FALSE,FALSE,72,58,32,31,33,78,72
-DC,Tripurana Vijay,Utility Batter,RHB,right,none,none,FALSE,FALSE,58,54,25,25,25,75,72
-GT,Shubman Gill,Technical Opener,RHB,right,none,none,TRUE,FALSE,66,79,25,25,25,90,88
-GT,Jos Buttler,Explosive Opener,RHB,right,none,none,TRUE,FALSE,70,70,25,25,25,87,79
-GT,Sai Sudharsan,Run Bank Anchor,LHB,left,none,none,FALSE,FALSE,60,84,25,25,25,86,74
-GT,Glenn Phillips,Power All-Round Force,RHB,right,pacer,right,FALSE,FALSE,69,63,38,40,36,94,74
-GT,Washington Sundar,Control All-Rounder,LHB,left,spinner,right,FALSE,FALSE,55,75,71,71,71,82,78
-GT,Shahrukh Khan,Shotmaker,RHB,right,none,none,FALSE,FALSE,69,60,25,25,25,78,74
-GT,Rahul Tewatia,Power All-Round Force,LHB,left,pacer,right,FALSE,FALSE,82,56,39,40,38,74,73
-GT,Rashid Khan,Control All-Rounder,RHB,right,spinner,right,FALSE,FALSE,52,71,82,82,82,90,78
-GT,Kagiso Rabada,New-Ball Seamer,LHB,left,pacer,right,FALSE,TRUE,48,47,77,77,77,83,72
-GT,Mohammed Siraj,New-Ball Seamer,RHB,right,pacer,right,FALSE,TRUE,48,49,76,76,76,82,72
-GT,Prasidh Krishna,New-Ball Seamer,RHB,right,pacer,right,FALSE,TRUE,48,47,73,73,73,74,72
-GT,Sai Kishore,Attack Spinner,LHB,left,spinner,left,FALSE,FALSE,48,48,74,74,75,84,72
-GT,Anuj Rawat,Shotmaker,LHB,left,none,none,FALSE,FALSE,66,56,25,25,25,80,72
-GT,Gurnoor Singh Brar,Shotmaker,LHB,left,none,none,TRUE,FALSE,61,60,25,25,25,77,72
-GT,Ishant Sharma,New-Ball Seamer,RHB,right,pacer,right,FALSE,FALSE,36,48,70,73,67,72,80
-GT,Jayant Yadav,Attack Spinner,RHB,right,spinner,right,FALSE,FALSE,45,60,67,69,65,74,76
-GT,Kumar Kushagra,Shotmaker,RHB,right,none,none,FALSE,FALSE,63,55,25,25,25,78,72
-GT,Manav Suthar,Attack Spinner,LHB,left,spinner,left,FALSE,FALSE,42,52,68,70,67,74,72
-GT,Mohammad Arshad Khan,Pace Enforcer,LHB,left,pacer,left,FALSE,FALSE,48,49,66,66,67,75,72
-GT,Nishant Sindhu,Control All-Rounder,LHB,left,spinner,left,FALSE,FALSE,56,60,62,63,61,78,72
-KKR,Sunil Narine,Control All-Rounder,LHB,left,spinner,right,TRUE,FALSE,78,53,78,82,74,80,80
-KKR,Tim Seifert,Explosive Opener,RHB,right,none,none,TRUE,FALSE,73,58,25,25,25,80,72
-KKR,Angkrish Raghuvanshi,Shotmaker,RHB,right,none,none,FALSE,FALSE,66,64,25,25,25,78,74
-KKR,Ajinkya Rahane,Run Bank Anchor,RHB,right,none,none,FALSE,FALSE,61,75,25,25,25,78,74
-KKR,Cameron Green,Power All-Round Force,RHB,right,pacer,right,FALSE,FALSE,69,64,66,65,66,84,76
-KKR,Rinku Singh,Finishing Closer,LHB,left,none,none,FALSE,FALSE,85,55,25,25,25,92,86
-KKR,Ramandeep Singh,Power All-Round Force,RHB,right,pacer,right,FALSE,FALSE,69,68,38,40,38,74,73
-KKR,Anukul Roy,Utility Batter,LHB,left,spinner,left,FALSE,FALSE,49,58,70,67,69,78,72
-KKR,Harshit Rana,New-Ball Seamer,RHB,right,pacer,right,FALSE,TRUE,40,40,77,77,77,74,72
-KKR,Mustafizur Rahman,New-Ball Seamer,LHB,left,pacer,left,FALSE,TRUE,40,48,76,78,75,78,76
-KKR,Umran Malik,Pace Enforcer,RHB,right,pacer,right,FALSE,TRUE,40,40,73,69,78,72,72
-KKR,Varun Chakravarthy,Attack Spinner,RHB,right,spinner,right,FALSE,FALSE,41,43,82,82,82,82,72
-KKR,Rovman Powell,Finishing Closer,RHB,right,pacer,right,FALSE,FALSE,81,52,34,33,35,80,72
-KKR,Vaibhav Arora,New-Ball Seamer,RHB,right,pacer,right,FALSE,FALSE,40,43,69,69,69,74,72
-KKR,Manish Pandey,Run Bank Anchor,RHB,right,none,none,FALSE,FALSE,58,72,25,25,25,79,78
-LSG,Aiden Markram,Control All-Rounder,RHB,right,spinner,right,TRUE,FALSE,55,79,39,40,38,86,86
-LSG,Mitchell Marsh,Seam All-Round Engine,RHB,right,pacer,right,TRUE,FALSE,63,66,64,63,65,80,80
-LSG,Nicholas Pooran,Finishing Closer,LHB,left,none,none,FALSE,FALSE,77,72,25,25,25,91,74
-LSG,Rishabh Pant,Finishing Closer,LHB,left,none,none,FALSE,FALSE,79,60,25,25,25,84,90
-LSG,Ayush Badoni,Shotmaker,RHB,right,none,none,FALSE,FALSE,58,71,25,25,25,78,74
-LSG,Abdul Samad,Shotmaker,RHB,right,none,none,FALSE,FALSE,75,54,25,25,25,78,74
-LSG,Shahbaz Ahmed,Attack Spinner,LHB,left,spinner,right,FALSE,FALSE,51,54,69,69,69,77,72
-LSG,Wanindu Hasaranga,Control All-Rounder,RHB,right,spinner,right,FALSE,FALSE,65,54,72,72,73,80,72
-LSG,Avesh Khan,Pace Enforcer,RHB,right,pacer,right,FALSE,FALSE,48,48,70,70,71,70,72
-LSG,Mohammed Shami,New-Ball Seamer,RHB,right,pacer,right,FALSE,FALSE,48,47,77,77,77,70,80
-LSG,Mayank Yadav,New-Ball Seamer,RHB,right,pacer,right,FALSE,TRUE,48,47,72,72,72,74,72
-LSG,Digvesh Rathi,Attack Spinner,RHB,right,spinner,right,FALSE,FALSE,41,47,68,70,72,74,72
-LSG,Matthew Breetzke,Shotmaker,RHB,right,none,none,TRUE,FALSE,67,62,25,25,25,80,72
-LSG,Mohsin Khan,New-Ball Seamer,LHB,left,pacer,left,FALSE,TRUE,40,45,71,72,71,74,72
-LSG,Akash Singh,New-Ball Seamer,LHB,left,pacer,left,FALSE,FALSE,40,44,68,69,68,72,72
-LSG,Arjun Tendulkar,New-Ball Seamer,LHB,left,pacer,left,FALSE,FALSE,49,47,62,62,62,74,72
-LSG,Arshin Kulkarni,Batting All-Round Link,RHB,right,pacer,right,TRUE,FALSE,64,57,58,58,58,78,72
-LSG,Himmat Singh,Shotmaker,RHB,right,none,none,FALSE,FALSE,60,63,25,25,25,76,72
-LSG,Manimaran Siddharth,Attack Spinner,LHB,left,spinner,left,FALSE,FALSE,40,49,69,70,68,74,72
-LSG,Prince Yadav,Pace Enforcer,RHB,right,pacer,right,FALSE,FALSE,43,46,66,66,67,73,72
-MI,Rohit Sharma,Explosive Opener,RHB,right,none,none,TRUE,FALSE,78,70,25,25,25,80,95
-MI,Quinton de Kock,Explosive Opener,LHB,left,none,none,TRUE,FALSE,79,58,25,25,25,86,73
-MI,Suryakumar Yadav,Shotmaker,RHB,right,none,none,FALSE,FALSE,75,74,25,25,25,92,90
-MI,Tilak Varma,Shotmaker,LHB,left,none,none,FALSE,FALSE,70,73,25,25,25,90,74
-MI,Hardik Pandya,Power All-Round Force,RHB,right,pacer,right,FALSE,FALSE,80,54,71,69,73,86,90
-MI,Will Jacks,Explosive Opener,RHB,right,spinner,right,TRUE,FALSE,73,63,33,30,35,84,74
-MI,Naman Dhir,Shotmaker,RHB,right,none,none,FALSE,FALSE,75,56,25,25,25,78,73
-MI,Corbin Bosch,Seam All-Round Engine,RHB,right,pacer,right,FALSE,FALSE,60,56,64,64,64,79,72
-MI,Mitchell Santner,Attack Spinner,LHB,left,spinner,right,FALSE,FALSE,44,54,75,77,72,81,72
-MI,Deepak Chahar,Pace Enforcer,RHB,right,pacer,right,FALSE,TRUE,53,49,72,68,76,70,72
-MI,Jasprit Bumrah,New-Ball Seamer,RHB,right,pacer,right,FALSE,TRUE,40,46,92,94,90,81,86
-MI,Trent Boult,New-Ball Seamer,RHB,right,pacer,right,FALSE,TRUE,48,47,79,82,76,82,78
-MI,Ryan Rickelton,Shotmaker,LHB,left,none,none,TRUE,FALSE,61,66,25,25,25,78,74
-MI,Allah Ghazanfar,Attack Spinner,RHB,right,spinner,right,FALSE,FALSE,42,47,74,76,72,75,72
-MI,Ashwani Kumar,New-Ball Seamer,LHB,left,pacer,left,FALSE,FALSE,40,44,67,68,67,73,72
-MI,Mayank Markande,Attack Spinner,RHB,right,spinner,right,FALSE,FALSE,40,47,70,72,70,74,72
-MI,Raghu Sharma,Attack Spinner,RHB,right,spinner,right,FALSE,FALSE,40,46,66,67,67,73,72
-MI,Raj Angad Bawa,Seam All-Round Engine,LHB,left,pacer,right,FALSE,FALSE,62,56,60,60,60,79,72
-MI,Robin Minz,Finishing Closer,LHB,left,none,none,FALSE,FALSE,77,52,25,25,25,80,72
-MI,Shardul Thakur,Pace Enforcer,RHB,right,pacer,right,FALSE,TRUE,54,48,69,66,72,74,74
-MI,Sherfane Rutherford,Finishing Closer,LHB,left,none,none,FALSE,FALSE,80,55,25,25,25,80,72
-PBKS,Priyansh Arya,Shotmaker,LHB,left,none,none,TRUE,FALSE,66,65,25,25,25,84,74
-PBKS,Prabhsimran Singh,Shotmaker,RHB,right,none,none,TRUE,FALSE,66,62,25,25,25,84,73
-PBKS,Shreyas Iyer,Shotmaker,RHB,right,none,none,FALSE,FALSE,74,71,25,25,25,78,88
-PBKS,Marcus Stoinis,Seam All-Round Engine,RHB,right,pacer,right,FALSE,FALSE,68,57,61,61,61,86,72
-PBKS,Nehal Wadhera,Finishing Closer,LHB,left,none,none,FALSE,FALSE,77,54,25,25,25,78,74
-PBKS,Shashank Singh,Shotmaker,RHB,right,none,none,FALSE,FALSE,72,64,25,25,25,78,74
-PBKS,Marco Jansen,Seam All-Round Engine,LHB,left,pacer,right,FALSE,TRUE,54,54,70,70,70,74,72
-PBKS,Harpreet Brar,Control All-Rounder,LHB,left,spinner,left,FALSE,FALSE,52,61,68,69,67,80,72
-PBKS,Arshdeep Singh,New-Ball Seamer,LHB,left,pacer,left,FALSE,TRUE,48,47,76,76,76,83,72
-PBKS,Lockie Ferguson,Pace Enforcer,RHB,right,pacer,right,FALSE,TRUE,41,43,76,73,79,74,72
-PBKS,Yuzvendra Chahal,Attack Spinner,RHB,right,spinner,right,FALSE,FALSE,48,47,80,80,80,81,72
-PBKS,Ben Dwarshuis,Pace Enforcer,LHB,left,pacer,left,FALSE,TRUE,46,46,71,70,72,74,72
-PBKS,Mitch Owen,Power All-Round Force,RHB,right,pacer,right,TRUE,FALSE,74,55,58,56,60,79,72
-PBKS,Azmatullah Omarzai,New-Ball Seamer,RHB,right,pacer,right,FALSE,FALSE,48,50,69,69,69,74,72
-PBKS,Harnoor Pannu,Shotmaker,LHB,left,none,none,TRUE,FALSE,64,60,25,25,25,78,72
-PBKS,Musheer Khan,Control All-Rounder,LHB,left,spinner,left,FALSE,FALSE,58,65,58,59,57,81,72
-PBKS,Pyla Avinash,Utility Batter,RHB,right,none,none,FALSE,FALSE,60,55,25,25,25,76,72
-PBKS,Suryansh Shedge,Power All-Round Force,RHB,right,pacer,right,FALSE,FALSE,71,54,56,56,57,78,72
-PBKS,Vishnu Vinod,Shotmaker,RHB,right,none,none,FALSE,FALSE,68,54,25,25,25,77,72
-PBKS,Vyshak Vijaykumar,Pace Enforcer,RHB,right,pacer,right,FALSE,TRUE,42,46,68,67,70,73,72
-PBKS,Xavier Bartlett,New-Ball Seamer,RHB,right,pacer,right,FALSE,FALSE,48,50,69,70,68,76,72
-PBKS,Yash Thakur,Pace Enforcer,RHB,right,pacer,right,FALSE,TRUE,42,46,69,68,71,73,72
-RR,Yashasvi Jaiswal,Technical Opener,LHB,left,none,none,TRUE,FALSE,76,72,25,25,25,85,75
-RR,Vaibhav Suryavanshi,Explosive Opener,LHB,left,none,none,TRUE,FALSE,85,55,25,25,25,80,70
-RR,Riyan Parag,Control All-Rounder,RHB,right,spinner,right,FALSE,FALSE,75,66,59,68,50,88,80
-RR,Dhruv Jurel,Shotmaker,RHB,right,none,none,FALSE,FALSE,70,70,25,25,25,90,75
-RR,Sam Curran,Seam All-Round Engine,LHB,left,pacer,right,FALSE,FALSE,55,61,69,69,69,74,78
-RR,Shimron Hetmyer,Shotmaker,LHB,left,none,none,FALSE,FALSE,73,59,25,25,25,84,74
-RR,Shubham Dubey,Shotmaker,LHB,left,none,none,FALSE,FALSE,66,63,25,25,25,78,74
-RR,Ravindra Jadeja,Control All-Rounder,LHB,left,spinner,right,FALSE,FALSE,52,64,76,82,70,99,82
-RR,Ravi Bishnoi,Attack Spinner,RHB,right,spinner,right,FALSE,FALSE,48,48,78,76,80,84,72
-RR,Jofra Archer,Pace Enforcer,RHB,right,pacer,right,FALSE,TRUE,48,47,82,81,82,83,72
-RR,Tushar Deshpande,Pace Enforcer,RHB,right,pacer,right,FALSE,FALSE,42,44,70,70,71,70,72
-RR,Sandeep Sharma,New-Ball Seamer,RHB,right,pacer,right,FALSE,TRUE,44,42,76,79,73,70,72
-RR,Kwena Maphaka,Pace Enforcer,LHB,left,pacer,left,FALSE,TRUE,42,42,72,70,74,74,72
-RR,Donovan Ferreira,Finishing Closer,RHB,right,spinner,right,FALSE,FALSE,80,54,33,32,33,82,72
-RR,Lhuan-Dre Pretorius,Explosive Opener,LHB,left,none,none,TRUE,FALSE,71,57,25,25,25,79,72
-RR,Nandre Burger,Pace Enforcer,RHB,right,pacer,left,FALSE,FALSE,40,44,72,71,73,74,72
-RR,Yudhvir Charak,Pace Enforcer,RHB,right,pacer,right,FALSE,FALSE,45,46,66,66,67,73,72
-RCB,Phil Salt,Explosive Opener,RHB,right,none,none,TRUE,FALSE,70,67,25,25,25,86,74
-RCB,Virat Kohli,Technical Opener,RHB,right,none,none,TRUE,FALSE,66,84,25,25,25,91,94
-RCB,Venkatesh Iyer,Control All-Rounder,LHB,left,spinner,left,FALSE,FALSE,74,68,38,40,38,86,74
-RCB,Rajat Patidar,Shotmaker,RHB,right,none,none,FALSE,FALSE,72,69,25,25,25,78,74
-RCB,Krunal Pandya,Control All-Rounder,LHB,left,spinner,right,FALSE,FALSE,52,70,69,69,69,87,72
-RCB,Jitesh Sharma,Finishing Closer,RHB,right,none,none,FALSE,FALSE,78,60,25,25,25,87,74
-RCB,Tim David,Shotmaker,RHB,right,none,none,FALSE,FALSE,75,54,25,25,25,78,74
-RCB,Romario Shepherd,Power All-Round Force,RHB,right,pacer,right,FALSE,TRUE,78,52,64,63,66,80,72
-RCB,Bhuvneshwar Kumar,New-Ball Seamer,RHB,right,pacer,right,FALSE,FALSE,42,48,76,76,76,74,82
-RCB,Josh Hazlewood,New-Ball Seamer,LHB,left,pacer,right,FALSE,FALSE,42,42,79,79,79,74,72
-RCB,Suyash Sharma,Attack Spinner,RHB,right,spinner,right,FALSE,FALSE,40,40,70,71,74,77,72
-RCB,Yash Dayal,Pace Enforcer,LHB,left,pacer,left,FALSE,TRUE,40,40,72,72,73,74,72
-RCB,Jacob Bethell,Control All-Rounder,LHB,left,spinner,left,TRUE,FALSE,72,62,60,60,60,82,72
-RCB,Abhinandan Singh,Pace Enforcer,RHB,right,pacer,right,FALSE,FALSE,42,44,66,66,67,73,72
-RCB,Devdutt Padikkal,Shotmaker,LHB,left,none,none,FALSE,FALSE,65,65,25,25,25,78,74
-RCB,Nuwan Thushara,Pace Enforcer,RHB,right,pacer,right,FALSE,TRUE,40,44,73,73,74,74,72
-RCB,Rasikh Dar,Pace Enforcer,RHB,right,pacer,right,FALSE,FALSE,42,43,66,66,67,73,72
-RCB,Swapnil Singh,Control All-Rounder,LHB,left,spinner,left,FALSE,FALSE,50,58,64,65,63,77,72
-SRH,Travis Head,Explosive Opener,LHB,left,none,none,TRUE,FALSE,92,56,25,25,25,86,73
-SRH,Abhishek Sharma,Power All-Round Force,LHB,left,pacer,right,TRUE,FALSE,91,55,40,41,39,84,73
-SRH,Ishan Kishan,Explosive Opener,LHB,left,none,none,TRUE,FALSE,87,53,25,25,25,84,73
-SRH,Heinrich Klaasen,Finishing Closer,RHB,right,none,none,FALSE,FALSE,76,72,25,25,25,87,74
-SRH,Nitish Kumar Reddy,Control All-Rounder,RHB,right,spinner,right,FALSE,FALSE,75,58,70,69,70,77,72
-SRH,Aniket Verma,Shotmaker,RHB,right,none,none,FALSE,FALSE,66,63,25,25,25,78,74
-SRH,Liam Livingstone,Power All-Round Force,RHB,right,pacer,right,FALSE,FALSE,80,56,38,39,37,74,73
-SRH,Pat Cummins,New-Ball Seamer,RHB,right,pacer,right,FALSE,FALSE,45,43,76,76,76,87,94
-SRH,Harshal Patel,New-Ball Seamer,RHB,right,pacer,right,FALSE,TRUE,48,51,77,77,77,70,72
-SRH,Jaydev Unadkat,New-Ball Seamer,RHB,right,pacer,left,FALSE,TRUE,48,49,72,72,72,70,72
-SRH,Zeeshan Ansari,Attack Spinner,RHB,right,spinner,right,FALSE,FALSE,40,45,69,71,68,74,72
-SRH,Harsh Dubey,Control All-Rounder,LHB,left,spinner,left,FALSE,FALSE,54,60,65,66,64,79,72
-SRH,Kamindu Mendis,Control All-Rounder,LHB,left,spinner,left,FALSE,FALSE,61,68,58,60,56,84,72
-SRH,Brydon Carse,Pace Enforcer,RHB,right,pacer,right,FALSE,TRUE,50,46,71,69,73,77,72
-SRH,Eshan Malinga,Pace Enforcer,RHB,right,pacer,right,FALSE,TRUE,40,42,68,67,70,73,72
-SRH,Smaran Ravichandran,Shotmaker,LHB,left,none,none,TRUE,FALSE,63,59,25,25,25,77,72
+name,team,age,role,contract,battingStyle,battingHand,bowlingType,bowlingHand,opener,deathBowl,intent,composure,bowling,econ,wkts,fielding,leadership
+Sanju Samson,CSK,31,Technical Opener,18,RHB,right,none,none,TRUE,FALSE,76,72,25,25,25,88,88
+Ayush Mhatre,CSK,18,Shotmaker,0.3,RHB,right,none,none,TRUE,FALSE,64,70,25,25,25,80,72
+Ruturaj Gaikwad,CSK,29,Technical Opener,18,RHB,right,none,none,TRUE,FALSE,70,75,25,25,25,90,74
+Matt Short,CSK,30,Control All-Rounder,1.5,RHB,right,spinner,right,TRUE,FALSE,68,64,44,45,43,80,74
+Dewald Brevis,CSK,22,Shotmaker,2.2,RHB,right,spinner,right,FALSE,FALSE,75,58,34,34,33,84,72
+Shivam Dube,CSK,32,Finishing Closer,12,LHB,left,none,none,FALSE,FALSE,79,62,25,25,25,78,73
+MS Dhoni,CSK,44,Shotmaker,4,RHB,right,none,none,FALSE,FALSE,73,66,25,25,25,86,98
+Anshul Kamboj,CSK,25,Seam All-Round Engine,3.4,RHB,right,pacer,right,FALSE,FALSE,56,63,76,80,72,76,72
+Prashant Veer,CSK,20,Utility Batter,14.2,RHB,right,spinner,right,FALSE,FALSE,50,56,64,65,63,78,72
+Nathan Ellis,CSK,31,New-Ball Seamer,2,RHB,right,pacer,right,FALSE,TRUE,42,48,75,76,75,74,72
+Khaleel Ahmed,CSK,28,Pace Enforcer,4.8,LHB,left,pacer,left,FALSE,FALSE,40,48,70,72,83,74,72
+Noor Ahmad,CSK,21,Attack Spinner,10,LHB,left,spinner,right,FALSE,FALSE,40,47,80,79,80,83,72
+Urvil Patel,CSK,27,Explosive Opener,0.3,RHB,right,none,none,TRUE,FALSE,74,52,25,25,25,80,72
+Jamie Overton,CSK,31,Seam All-Round Engine,1.5,RHB,right,pacer,right,FALSE,FALSE,68,55,67,66,68,78,74
+Gurjapneet Singh,CSK,27,Pace Enforcer,2.2,LHB,left,pacer,left,FALSE,FALSE,42,46,69,69,70,74,72
+Mukesh Choudhary,CSK,29,New-Ball Seamer,0.3,LHB,left,pacer,left,FALSE,FALSE,40,45,74,76,72,72,72
+Ramakrishna Ghosh,CSK,28,Batting All-Round Link,0.3,RHB,right,pacer,right,FALSE,FALSE,63,52,58,57,59,75,72
+Shreyas Gopal,CSK,32,Attack Spinner,0.3,RHB,right,spinner,right,FALSE,FALSE,48,50,69,71,68,76,72
+Prithvi Shaw,DC,26,Explosive Opener,0.75,RHB,right,none,none,TRUE,FALSE,76,56,25,25,25,78,72
+Abishek Porel,DC,23,Shotmaker,4,LHB,left,none,none,FALSE,FALSE,75,55,25,25,25,90,74
+Nitish Rana,DC,32,Control All-Rounder,4.2,LHB,left,spinner,left,FALSE,FALSE,69,68,38,39,37,77,74
+KL Rahul,DC,33,Shotmaker,14,RHB,right,none,none,FALSE,FALSE,70,75,25,25,25,88,90
+Tristan Stubbs,DC,25,Shotmaker,10,RHB,right,none,none,FALSE,FALSE,70,62,25,25,25,90,74
+David Miller,DC,36,Shotmaker,2,LHB,left,none,none,FALSE,FALSE,71,66,25,25,25,85,74
+Ashutosh Sharma,DC,27,Finishing Closer,3.8,RHB,right,none,none,FALSE,FALSE,79,56,25,25,25,78,73
+Axar Patel,DC,32,Control All-Rounder,16.5,LHB,left,spinner,right,FALSE,FALSE,58,69,72,72,73,83,84
+Kuldeep Yadav,DC,31,Attack Spinner,13.25,LHB,left,spinner,right,FALSE,FALSE,44,41,81,81,81,82,72
+T Natarajan,DC,34,Pace Enforcer,10.75,LHB,left,pacer,left,FALSE,TRUE,48,47,74,74,75,74,72
+Mitchell Starc,DC,36,New-Ball Seamer,11.75,LHB,left,pacer,right,FALSE,TRUE,48,48,75,75,75,81,78
+Vipraj Nigam,DC,21,Attack Spinner,0.5,RHB,right,spinner,right,FALSE,FALSE,48,50,69,70,73,77,72
+Karun Nair,DC,34,Run Bank Anchor,0.5,RHB,right,none,none,FALSE,FALSE,61,74,25,25,25,76,78
+Kyle Jamieson,DC,31,Pace Enforcer,2,RHB,right,pacer,right,FALSE,FALSE,48,48,71,72,74,74,72
+Auqib Nabi,DC,29,Pace Enforcer,8.4,RHB,right,pacer,right,FALSE,FALSE,44,44,67,72,76,75,72
+Mukesh Kumar,DC,32,New-Ball Seamer,8,RHB,right,pacer,right,FALSE,FALSE,48,47,70,70,70,70,72
+Ajay Mandal,DC,30,Control All-Rounder,0.3,LHB,left,spinner,left,FALSE,FALSE,50,58,66,67,65,77,72
+Dushmantha Chameera,DC,34,Pace Enforcer,0.75,RHB,right,pacer,right,FALSE,TRUE,42,44,73,72,75,74,72
+Madhav Tiwari,DC,22,Seam All-Round Engine,0.4,RHB,right,pacer,right,FALSE,FALSE,60,54,60,60,60,76,72
+Sameer Rizvi,DC,22,Shotmaker,0.95,RHB,right,spinner,right,FALSE,FALSE,72,58,32,31,33,78,72
+Tripurana Vijay,DC,24,Utility Batter,0.3,RHB,right,none,none,FALSE,FALSE,58,54,25,25,25,75,72
+Shubman Gill,GT,26,Technical Opener,16.5,RHB,right,none,none,TRUE,FALSE,66,79,25,25,25,90,88
+Jos Buttler,GT,35,Explosive Opener,15.75,RHB,right,none,none,TRUE,FALSE,70,70,25,25,25,87,79
+Sai Sudharsan,GT,24,Run Bank Anchor,8.5,LHB,left,none,none,FALSE,FALSE,60,84,25,25,25,86,74
+Glenn Phillips,GT,29,Power All-Round Force,2,RHB,right,pacer,right,FALSE,FALSE,69,63,38,40,36,94,74
+Washington Sundar,GT,26,Control All-Rounder,3.2,LHB,left,spinner,right,FALSE,FALSE,55,75,71,71,71,82,78
+Shahrukh Khan,GT,30,Shotmaker,4,RHB,right,none,none,FALSE,FALSE,69,60,25,25,25,78,74
+Rahul Tewatia,GT,32,Power All-Round Force,4,LHB,left,pacer,right,FALSE,FALSE,82,56,39,40,38,74,73
+Rashid Khan,GT,27,Control All-Rounder,18,RHB,right,spinner,right,FALSE,FALSE,52,71,82,82,82,90,78
+Kagiso Rabada,GT,30,New-Ball Seamer,10.75,LHB,left,pacer,right,FALSE,TRUE,48,47,77,77,77,83,72
+Mohammed Siraj,GT,32,New-Ball Seamer,12.25,RHB,right,pacer,right,FALSE,TRUE,48,49,76,76,76,82,72
+Prasidh Krishna,GT,30,New-Ball Seamer,9.5,RHB,right,pacer,right,FALSE,TRUE,48,47,73,73,73,74,72
+Sai Kishore,GT,29,Attack Spinner,2,LHB,left,spinner,left,FALSE,FALSE,48,48,74,74,75,84,72
+Anuj Rawat,GT,26,Shotmaker,0.3,LHB,left,none,none,FALSE,FALSE,66,56,25,25,25,80,72
+Gurnoor Singh Brar,GT,25,Shotmaker,1.3,LHB,left,none,none,TRUE,FALSE,61,60,25,25,25,77,72
+Ishant Sharma,GT,37,New-Ball Seamer,0.75,RHB,right,pacer,right,FALSE,FALSE,36,48,70,73,67,72,80
+Jayant Yadav,GT,36,Attack Spinner,0.75,RHB,right,spinner,right,FALSE,FALSE,45,60,67,69,65,74,76
+Kumar Kushagra,GT,21,Shotmaker,0.65,RHB,right,none,none,FALSE,FALSE,63,55,25,25,25,78,72
+Manav Suthar,GT,23,Attack Spinner,0.3,LHB,left,spinner,left,FALSE,FALSE,42,52,68,70,67,74,72
+Mohammad Arshad Khan,GT,28,Pace Enforcer,1.3,LHB,left,pacer,left,FALSE,FALSE,48,49,66,66,67,75,72
+Nishant Sindhu,GT,21,Control All-Rounder,0.3,LHB,left,spinner,left,FALSE,FALSE,56,60,62,63,61,78,72
+Sunil Narine,KKR,37,Control All-Rounder,12,LHB,left,spinner,right,TRUE,FALSE,78,53,78,82,74,80,80
+Tim Seifert,KKR,31,Explosive Opener,1.5,RHB,right,none,none,TRUE,FALSE,73,58,25,25,25,80,72
+Angkrish Raghuvanshi,KKR,20,Shotmaker,3,RHB,right,none,none,FALSE,FALSE,66,64,25,25,25,78,74
+Ajinkya Rahane,KKR,37,Run Bank Anchor,1.5,RHB,right,none,none,FALSE,FALSE,61,75,25,25,25,78,74
+Cameron Green,KKR,26,Power All-Round Force,25.2,RHB,right,pacer,right,FALSE,FALSE,69,64,66,65,66,84,76
+Rinku Singh,KKR,28,Finishing Closer,13,LHB,left,none,none,FALSE,FALSE,85,55,25,25,25,92,86
+Ramandeep Singh,KKR,28,Power All-Round Force,4,RHB,right,pacer,right,FALSE,FALSE,69,68,38,40,38,74,73
+Anukul Roy,KKR,27,Utility Batter,0.4,LHB,left,spinner,left,FALSE,FALSE,49,58,70,67,69,78,72
+Harshit Rana,KKR,24,New-Ball Seamer,4,RHB,right,pacer,right,FALSE,TRUE,40,40,77,77,77,74,72
+Mustafizur Rahman,KKR,30,New-Ball Seamer,9.2,LHB,left,pacer,left,FALSE,TRUE,40,48,76,78,75,78,76
+Umran Malik,KKR,26,Pace Enforcer,0.75,RHB,right,pacer,right,FALSE,TRUE,40,40,73,69,78,72,72
+Varun Chakravarthy,KKR,34,Attack Spinner,12,RHB,right,spinner,right,FALSE,FALSE,41,43,82,82,82,82,72
+Rovman Powell,KKR,32,Finishing Closer,1.5,RHB,right,pacer,right,FALSE,FALSE,81,52,34,33,35,80,72
+Vaibhav Arora,KKR,28,New-Ball Seamer,1.8,RHB,right,pacer,right,FALSE,FALSE,40,43,69,69,69,74,72
+Manish Pandey,KKR,36,Run Bank Anchor,0.75,RHB,right,none,none,FALSE,FALSE,58,72,25,25,25,79,78
+Aiden Markram,LSG,31,Control All-Rounder,2,RHB,right,spinner,right,TRUE,FALSE,55,79,39,40,38,86,86
+Mitchell Marsh,LSG,34,Seam All-Round Engine,3.4,RHB,right,pacer,right,TRUE,FALSE,63,66,64,63,65,80,80
+Nicholas Pooran,LSG,30,Finishing Closer,21,LHB,left,none,none,FALSE,FALSE,77,72,25,25,25,91,74
+Rishabh Pant,LSG,28,Finishing Closer,27,LHB,left,none,none,FALSE,FALSE,79,60,25,25,25,84,90
+Ayush Badoni,LSG,26,Shotmaker,4,RHB,right,none,none,FALSE,FALSE,58,71,25,25,25,78,74
+Abdul Samad,LSG,24,Shotmaker,4.2,RHB,right,none,none,FALSE,FALSE,75,54,25,25,25,78,74
+Shahbaz Ahmed,LSG,31,Attack Spinner,2.4,LHB,left,spinner,right,FALSE,FALSE,51,54,69,69,69,77,72
+Wanindu Hasaranga,LSG,28,Control All-Rounder,2,RHB,right,spinner,right,FALSE,FALSE,65,54,72,72,73,80,72
+Avesh Khan,LSG,29,Pace Enforcer,9.75,RHB,right,pacer,right,FALSE,FALSE,48,48,70,70,71,70,72
+Mohammed Shami,LSG,35,New-Ball Seamer,10,RHB,right,pacer,right,FALSE,FALSE,48,47,77,77,77,70,80
+Mayank Yadav,LSG,23,New-Ball Seamer,11,RHB,right,pacer,right,FALSE,TRUE,48,47,72,72,72,74,72
+Digvesh Rathi,LSG,26,Attack Spinner,0.3,RHB,right,spinner,right,FALSE,FALSE,41,47,68,70,72,74,72
+Matthew Breetzke,LSG,27,Shotmaker,0.75,RHB,right,none,none,TRUE,FALSE,67,62,25,25,25,80,72
+Mohsin Khan,LSG,27,New-Ball Seamer,4,LHB,left,pacer,left,FALSE,TRUE,40,45,71,72,71,74,72
+Akash Singh,LSG,23,New-Ball Seamer,0.3,LHB,left,pacer,left,FALSE,FALSE,40,44,68,69,68,72,72
+Arjun Tendulkar,LSG,26,New-Ball Seamer,0.3,LHB,left,pacer,left,FALSE,FALSE,49,47,62,62,62,74,72
+Arshin Kulkarni,LSG,21,Batting All-Round Link,0.3,RHB,right,pacer,right,TRUE,FALSE,64,57,58,58,58,78,72
+Himmat Singh,LSG,29,Shotmaker,0.3,RHB,right,none,none,FALSE,FALSE,60,63,25,25,25,76,72
+Manimaran Siddharth,LSG,27,Attack Spinner,0.75,LHB,left,spinner,left,FALSE,FALSE,40,49,69,70,68,74,72
+Prince Yadav,LSG,24,Pace Enforcer,0.3,RHB,right,pacer,right,FALSE,FALSE,43,46,66,66,67,73,72
+Rohit Sharma,MI,38,Explosive Opener,16.3,RHB,right,none,none,TRUE,FALSE,78,70,25,25,25,80,95
+Quinton de Kock,MI,33,Explosive Opener,1,LHB,left,none,none,TRUE,FALSE,79,58,25,25,25,86,73
+Suryakumar Yadav,MI,35,Shotmaker,16.35,RHB,right,none,none,FALSE,FALSE,75,74,25,25,25,92,90
+Tilak Varma,MI,23,Shotmaker,8,LHB,left,none,none,FALSE,FALSE,70,73,25,25,25,90,74
+Hardik Pandya,MI,32,Power All-Round Force,16.35,RHB,right,pacer,right,FALSE,FALSE,80,54,71,69,73,86,90
+Will Jacks,MI,27,Explosive Opener,5.25,RHB,right,spinner,right,TRUE,FALSE,73,63,33,30,35,84,74
+Naman Dhir,MI,26,Shotmaker,5.25,RHB,right,none,none,FALSE,FALSE,75,56,25,25,25,78,73
+Corbin Bosch,MI,31,Seam All-Round Engine,0.75,RHB,right,pacer,right,FALSE,FALSE,60,56,64,64,64,79,72
+Mitchell Santner,MI,34,Attack Spinner,2,LHB,left,spinner,right,FALSE,FALSE,44,54,75,77,72,81,72
+Deepak Chahar,MI,33,Pace Enforcer,9.25,RHB,right,pacer,right,FALSE,TRUE,53,49,72,68,76,70,72
+Jasprit Bumrah,MI,32,New-Ball Seamer,18,RHB,right,pacer,right,FALSE,TRUE,40,46,92,94,90,81,86
+Trent Boult,MI,36,New-Ball Seamer,12.5,RHB,right,pacer,right,FALSE,TRUE,48,47,79,82,76,82,78
+Ryan Rickelton,MI,29,Shotmaker,1,LHB,left,none,none,TRUE,FALSE,61,66,25,25,25,78,74
+Allah Ghazanfar,MI,18,Attack Spinner,4.8,RHB,right,spinner,right,FALSE,FALSE,42,47,74,76,72,75,72
+Ashwani Kumar,MI,24,New-Ball Seamer,0.3,LHB,left,pacer,left,FALSE,FALSE,40,44,67,68,67,73,72
+Mayank Markande,MI,28,Attack Spinner,0.3,RHB,right,spinner,right,FALSE,FALSE,40,47,70,72,70,74,72
+Raghu Sharma,MI,33,Attack Spinner,0.3,RHB,right,spinner,right,FALSE,FALSE,40,46,66,67,67,73,72
+Raj Angad Bawa,MI,23,Seam All-Round Engine,0.3,LHB,left,pacer,right,FALSE,FALSE,62,56,60,60,60,79,72
+Robin Minz,MI,23,Finishing Closer,0.65,LHB,left,none,none,FALSE,FALSE,77,52,25,25,25,80,72
+Shardul Thakur,MI,34,Pace Enforcer,2,RHB,right,pacer,right,FALSE,TRUE,54,48,69,66,72,74,74
+Sherfane Rutherford,MI,27,Finishing Closer,2.6,LHB,left,none,none,FALSE,FALSE,80,55,25,25,25,80,72
+Priyansh Arya,PBKS,24,Shotmaker,3.8,LHB,left,none,none,TRUE,FALSE,66,65,25,25,25,84,74
+Prabhsimran Singh,PBKS,25,Shotmaker,4,RHB,right,none,none,TRUE,FALSE,66,62,25,25,25,84,73
+Shreyas Iyer,PBKS,31,Shotmaker,26.75,RHB,right,none,none,FALSE,FALSE,74,71,25,25,25,78,88
+Marcus Stoinis,PBKS,36,Seam All-Round Engine,11,RHB,right,pacer,right,FALSE,FALSE,68,57,61,61,61,86,72
+Nehal Wadhera,PBKS,25,Finishing Closer,4.2,LHB,left,none,none,FALSE,FALSE,77,54,25,25,25,78,74
+Shashank Singh,PBKS,34,Shotmaker,5.5,RHB,right,none,none,FALSE,FALSE,72,64,25,25,25,78,74
+Marco Jansen,PBKS,25,Seam All-Round Engine,7,LHB,left,pacer,right,FALSE,TRUE,54,54,70,70,70,74,72
+Harpreet Brar,PBKS,30,Control All-Rounder,1.5,LHB,left,spinner,left,FALSE,FALSE,52,61,68,69,67,80,72
+Arshdeep Singh,PBKS,27,New-Ball Seamer,18,LHB,left,pacer,left,FALSE,TRUE,48,47,76,76,76,83,72
+Lockie Ferguson,PBKS,34,Pace Enforcer,2,RHB,right,pacer,right,FALSE,TRUE,41,43,76,73,79,74,72
+Yuzvendra Chahal,PBKS,35,Attack Spinner,18,RHB,right,spinner,right,FALSE,FALSE,48,47,80,80,80,81,72
+Ben Dwarshuis,PBKS,31,Pace Enforcer,4.4,LHB,left,pacer,left,FALSE,TRUE,46,46,71,70,72,74,72
+Mitch Owen,PBKS,24,Power All-Round Force,3,RHB,right,pacer,right,TRUE,FALSE,74,55,58,56,60,79,72
+Azmatullah Omarzai,PBKS,26,New-Ball Seamer,2.4,RHB,right,pacer,right,FALSE,FALSE,48,50,69,69,69,74,72
+Harnoor Pannu,PBKS,23,Shotmaker,0.3,LHB,left,none,none,TRUE,FALSE,64,60,25,25,25,78,72
+Musheer Khan,PBKS,21,Control All-Rounder,0.3,LHB,left,spinner,left,FALSE,FALSE,58,65,58,59,57,81,72
+Pyla Avinash,PBKS,25,Utility Batter,0.3,RHB,right,none,none,FALSE,FALSE,60,55,25,25,25,76,72
+Suryansh Shedge,PBKS,23,Power All-Round Force,0.3,RHB,right,pacer,right,FALSE,FALSE,71,54,56,56,57,78,72
+Vishnu Vinod,PBKS,32,Shotmaker,0.95,RHB,right,none,none,FALSE,FALSE,68,54,25,25,25,77,72
+Vyshak Vijaykumar,PBKS,29,Pace Enforcer,1.8,RHB,right,pacer,right,FALSE,TRUE,42,46,68,67,70,73,72
+Xavier Bartlett,PBKS,27,New-Ball Seamer,0.8,RHB,right,pacer,right,FALSE,FALSE,48,50,69,70,68,76,72
+Yash Thakur,PBKS,27,Pace Enforcer,1.6,RHB,right,pacer,right,FALSE,TRUE,42,46,69,68,71,73,72
+Yashasvi Jaiswal,RR,24,Technical Opener,18,LHB,left,none,none,TRUE,FALSE,76,72,25,25,25,85,75
+Vaibhav Suryavanshi,RR,15,Explosive Opener,1.1,LHB,left,none,none,TRUE,FALSE,85,55,25,25,25,80,70
+Riyan Parag,RR,24,Control All-Rounder,14,RHB,right,spinner,right,FALSE,FALSE,75,66,59,68,50,88,80
+Dhruv Jurel,RR,25,Shotmaker,14,RHB,right,none,none,FALSE,FALSE,70,70,25,25,25,90,75
+Sam Curran,RR,27,Seam All-Round Engine,2.4,LHB,left,pacer,right,FALSE,FALSE,55,61,69,69,69,74,78
+Shimron Hetmyer,RR,29,Shotmaker,11,LHB,left,none,none,FALSE,FALSE,73,59,25,25,25,84,74
+Shubham Dubey,RR,31,Shotmaker,0.8,LHB,left,none,none,FALSE,FALSE,66,63,25,25,25,78,74
+Ravindra Jadeja,RR,37,Control All-Rounder,14,LHB,left,spinner,right,FALSE,FALSE,52,64,76,82,70,99,82
+Ravi Bishnoi,RR,25,Attack Spinner,7.2,RHB,right,spinner,right,FALSE,FALSE,48,48,78,76,80,84,72
+Jofra Archer,RR,30,Pace Enforcer,12.5,RHB,right,pacer,right,FALSE,TRUE,48,47,82,81,82,83,72
+Tushar Deshpande,RR,30,Pace Enforcer,6.5,RHB,right,pacer,right,FALSE,FALSE,42,44,70,70,71,70,72
+Sandeep Sharma,RR,32,New-Ball Seamer,4,RHB,right,pacer,right,FALSE,TRUE,44,42,76,79,73,70,72
+Kwena Maphaka,RR,19,Pace Enforcer,1.5,LHB,left,pacer,left,FALSE,TRUE,42,42,72,70,74,74,72
+Donovan Ferreira,RR,27,Finishing Closer,1,RHB,right,spinner,right,FALSE,FALSE,80,54,33,32,33,82,72
+Lhuan-Dre Pretorius,RR,20,Explosive Opener,0.3,LHB,left,none,none,TRUE,FALSE,71,57,25,25,25,79,72
+Nandre Burger,RR,30,Pace Enforcer,3.5,RHB,right,pacer,left,FALSE,FALSE,40,44,72,71,73,74,72
+Yudhvir Charak,RR,28,Pace Enforcer,0.35,RHB,right,pacer,right,FALSE,FALSE,45,46,66,66,67,73,72
+Phil Salt,RCB,29,Explosive Opener,11.5,RHB,right,none,none,TRUE,FALSE,70,67,25,25,25,86,74
+Virat Kohli,RCB,37,Technical Opener,21,RHB,right,none,none,TRUE,FALSE,66,84,25,25,25,91,94
+Venkatesh Iyer,RCB,31,Control All-Rounder,7,LHB,left,spinner,left,FALSE,FALSE,74,68,38,40,38,86,74
+Rajat Patidar,RCB,32,Shotmaker,11,RHB,right,none,none,FALSE,FALSE,72,69,25,25,25,78,74
+Krunal Pandya,RCB,35,Control All-Rounder,5.75,LHB,left,spinner,right,FALSE,FALSE,52,70,69,69,69,87,72
+Jitesh Sharma,RCB,32,Finishing Closer,11,RHB,right,none,none,FALSE,FALSE,78,60,25,25,25,87,74
+Tim David,RCB,30,Shotmaker,3,RHB,right,none,none,FALSE,FALSE,75,54,25,25,25,78,74
+Romario Shepherd,RCB,31,Power All-Round Force,1.5,RHB,right,pacer,right,FALSE,TRUE,78,52,64,63,66,80,72
+Bhuvneshwar Kumar,RCB,36,New-Ball Seamer,10.75,RHB,right,pacer,right,FALSE,FALSE,42,48,76,76,76,74,82
+Josh Hazlewood,RCB,35,New-Ball Seamer,12.5,LHB,left,pacer,right,FALSE,FALSE,42,42,79,79,79,74,72
+Suyash Sharma,RCB,22,Attack Spinner,2.6,RHB,right,spinner,right,FALSE,FALSE,40,40,70,71,74,77,72
+Yash Dayal,RCB,28,Pace Enforcer,5,LHB,left,pacer,left,FALSE,TRUE,40,40,72,72,73,74,72
+Jacob Bethell,RCB,22,Control All-Rounder,2.6,LHB,left,spinner,left,TRUE,FALSE,72,62,60,60,60,82,72
+Abhinandan Singh,RCB,28,Pace Enforcer,0.3,RHB,right,pacer,right,FALSE,FALSE,42,44,66,66,67,73,72
+Devdutt Padikkal,RCB,25,Shotmaker,2,LHB,left,none,none,FALSE,FALSE,65,65,25,25,25,78,74
+Nuwan Thushara,RCB,31,Pace Enforcer,1.6,RHB,right,pacer,right,FALSE,TRUE,40,44,73,73,74,74,72
+Rasikh Dar,RCB,25,Pace Enforcer,6,RHB,right,pacer,right,FALSE,FALSE,42,43,66,66,67,73,72
+Swapnil Singh,RCB,35,Control All-Rounder,0.5,LHB,left,spinner,left,FALSE,FALSE,50,58,64,65,63,77,72
+Travis Head,SRH,32,Explosive Opener,14,LHB,left,none,none,TRUE,FALSE,92,56,25,25,25,86,73
+Abhishek Sharma,SRH,25,Power All-Round Force,14,LHB,left,pacer,right,TRUE,FALSE,91,55,40,41,39,84,73
+Ishan Kishan,SRH,27,Explosive Opener,11.25,LHB,left,none,none,TRUE,FALSE,87,53,25,25,25,84,73
+Heinrich Klaasen,SRH,34,Finishing Closer,23,RHB,right,none,none,FALSE,FALSE,76,72,25,25,25,87,74
+Nitish Kumar Reddy,SRH,22,Control All-Rounder,6,RHB,right,spinner,right,FALSE,FALSE,75,58,70,69,70,77,72
+Aniket Verma,SRH,24,Shotmaker,0.3,RHB,right,none,none,FALSE,FALSE,66,63,25,25,25,78,74
+Liam Livingstone,SRH,32,Power All-Round Force,13,RHB,right,pacer,right,FALSE,FALSE,80,56,38,39,37,74,73
+Pat Cummins,SRH,32,New-Ball Seamer,18,RHB,right,pacer,right,FALSE,FALSE,45,43,76,76,76,87,94
+Harshal Patel,SRH,35,New-Ball Seamer,8,RHB,right,pacer,right,FALSE,TRUE,48,51,77,77,77,70,72
+Jaydev Unadkat,SRH,34,New-Ball Seamer,1,RHB,right,pacer,left,FALSE,TRUE,48,49,72,72,72,70,72
+Zeeshan Ansari,SRH,26,Attack Spinner,0.4,RHB,right,spinner,right,FALSE,FALSE,40,45,69,71,68,74,72
+Harsh Dubey,SRH,23,Control All-Rounder,0.3,LHB,left,spinner,left,FALSE,FALSE,54,60,65,66,64,79,72
+Kamindu Mendis,SRH,27,Control All-Rounder,0.75,LHB,left,spinner,left,FALSE,FALSE,61,68,58,60,56,84,72
+Brydon Carse,SRH,30,Pace Enforcer,1,RHB,right,pacer,right,FALSE,TRUE,50,46,71,69,73,77,72
+Eshan Malinga,SRH,25,Pace Enforcer,1.2,RHB,right,pacer,right,FALSE,TRUE,40,42,68,67,70,73,72
+Smaran Ravichandran,SRH,22,Shotmaker,0.3,LHB,left,none,none,TRUE,FALSE,63,59,25,25,25,77,72

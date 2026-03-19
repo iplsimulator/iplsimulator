@@ -25,8 +25,18 @@ const DEFAULT_IMPACT_PLAYERS = {
 };
 
 const CUSTOM_PLAYERS_STORAGE_KEY = "cricketsim.customPlayers";
+const OFFSEASON_SALARY_CAP = 125;
+const MAX_ROSTER_SIZE = 20;
+const OFFSEASON_NEW_PLAYER_COUNT = 30;
+const OFFSEASON_NEW_PLAYER_MIN_OVR = 64;
+const OFFSEASON_NEW_PLAYER_MAX_OVR = 82;
+const INDIAN_FIRST_NAMES = ["Aarav", "Aayush", "Aditya", "Akash", "Aniket", "Arjun", "Atharva", "Dev", "Dhruv", "Ishaan", "Karan", "Krish", "Manav", "Mayank", "Neel", "Nikhil", "Parth", "Pranav", "Raghav", "Rohan", "Sai", "Samarth", "Shivam", "Tanish", "Vedant", "Vihaan", "Yash", "Arnav", "Harsh", "Lakshya"];
+const INDIAN_LAST_NAMES = ["Sharma", "Patel", "Singh", "Kumar", "Verma", "Reddy", "Iyer", "Nair", "Joshi", "Pillai", "Mehta", "Chopra", "Saxena", "Desai", "Kulkarni", "Bhat", "Pandey", "Dubey", "Gill", "Thakur", "Bisht", "Bora", "Mishra", "Jadeja", "Rana", "Rawat", "Pawar", "Tripathi", "Chaudhary", "Malhotra"];
+const OVERSEAS_FIRST_NAMES = ["Oliver", "Harry", "Jack", "Thomas", "William", "Ben", "Noah", "Liam", "Ryan", "Sean", "Callum", "Finn", "Mitchell", "Jordan", "Corey", "Tristan", "Dewald", "Marco", "Kagiso", "Tendai", "Sikandar", "Rashid", "Babar", "Aiden", "Glenn", "Jason", "Nicholas", "Shai", "Joshua", "Sam"];
+const OVERSEAS_LAST_NAMES = ["Smith", "Brown", "Taylor", "Anderson", "Miller", "Jones", "Clark", "Turner", "Campbell", "Morgan", "de Villiers", "van der Merwe", "Pretorius", "Coetzee", "Masakadza", "Ngarava", "Khan", "Afridi", "Shah", "Ali", "Williamson", "Phillips", "Chapman", "Allen", "Holder", "Joseph", "Lewis", "Neesham", "Conway", "Stirling"];
 
 let teams = createEmptyTeams();
+let openSimulatorHowToPlayStep = null;
 
 const state = {
   selectedTeam: "CSK",
@@ -49,6 +59,11 @@ const state = {
   draggedLineupIndex: null,
   selectedLineupSwap: null,
   lineupCardFlips: {},
+  lineupCardViews: {},
+  continueSimUnlocked: false,
+  seasonYear: 2026,
+  recordedAwardSeasonYear: null,
+  offseason: null,
   impactSubs: {},
   bowlingPlans: {},
   bowlingPlanValidationTeam: null,
@@ -88,6 +103,9 @@ function player(name, role, battingStyle, intent, composure, sixthArg, seventhAr
     createdPlayer.customId = row.customId || null;
     createdPlayer.isCustom = Boolean(row.customId || toBoolean(row.isCustom));
     createdPlayer.teamCode = row.teamCode || null;
+    createdPlayer.age = Number(row.age) || null;
+    createdPlayer.contract = row.contract === "" || row.contract === undefined ? null : Number(row.contract);
+    createdPlayer.marketValue = createdPlayer.contract;
     return createdPlayer;
   }
 
@@ -117,6 +135,9 @@ function player(name, role, battingStyle, intent, composure, sixthArg, seventhAr
     customId: null,
     isCustom: false,
     teamCode: null,
+    age: null,
+    contract: null,
+    marketValue: null,
     batting: synthetic.batting,
     bowling: synthetic.bowling,
     makePlayerTargets: {
@@ -246,10 +267,18 @@ function parseCsvLine(line) {
 }
 
 function normalizePlayerRow(row) {
+  const teamCode = row.teamCode || row.team || "";
+  const playerName = row.playerName || row.name || "";
+  const sourceRole = row.sourceRole || row.role || "";
   return {
-    teamCode: row.teamCode,
-    playerName: row.playerName,
-    sourceRole: row.sourceRole,
+    teamCode,
+    playerName,
+    sourceRole,
+    team: teamCode,
+    name: playerName,
+    role: sourceRole,
+    age: row.age === "" || row.age === undefined ? "" : String(row.age),
+    contract: row.contract === "" || row.contract === undefined ? "" : String(row.contract),
     battingStyle: row.battingStyle || (row.battingHand === "left" ? "LHB" : "RHB"),
     battingHand: row.battingHand || (row.battingStyle === "LHB" ? "left" : "right"),
     bowlingType: row.bowlingType || "none",
@@ -296,9 +325,14 @@ function createCustomPlayerRow(teamCode) {
   return {
     customId: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     isCustom: "TRUE",
+    team: teamCode,
     teamCode,
+    name: preview.name,
     playerName: preview.name,
+    age: "",
+    role: preview.role,
     sourceRole: preview.role,
+    contract: "",
     battingStyle: preview.battingStyle,
     battingHand: preview.battingHand,
     bowlingType: preview.bowlingType,
@@ -324,6 +358,8 @@ function addCustomPlayerToRuntime(row) {
   const customPlayer = player(normalized);
   ensurePlayerRuntimeState(customPlayer);
   customPlayer.teamCode = row.teamCode;
+  customPlayer.contract = getFairMarketSalary(customPlayer);
+  customPlayer.marketValue = customPlayer.contract;
   team.players = [...team.players, customPlayer];
   team.teamRatings = calculateTeamRatings(team.players);
   team.attackProfile = buildAttackProfile(team.players);
@@ -378,6 +414,8 @@ function initializeStateFromTeams() {
   state.awayTeam = state.opponentTeam;
   state.selectedTeam = state.franchiseTeam;
   state.customLeagueOpponent = findTeam(state.customLeagueOpponent)?.code || teams[1]?.code || teams[0].code;
+  refreshGeneratedContracts();
+  state.recordedAwardSeasonYear = null;
   state.season = resetSeason();
   syncFeaturedMatchToSeason();
   state.customSelections = buildDefaultCustomSelections();
@@ -388,6 +426,7 @@ function initializeStateFromTeams() {
   state.bowlingPlans = Object.fromEntries(
     teams.map((team) => [team.code, buildDefaultBowlingPlan(team.code)])
   );
+  state.offseason = null;
   state.bowlingPlanValidationTeam = null;
   state.lineupValidationTeam = null;
   state.lastSeasonLossChampion = null;
@@ -590,8 +629,83 @@ function ensurePlayerRuntimeState(playerData) {
   if (!playerData.profile) {
     playerData.profile = inferPlayerProfile(playerData);
   }
+  if (!playerData.awardCounts) {
+    playerData.awardCounts = {
+      bestSubs: 0,
+      mvps: 0,
+      orangeCaps: 0,
+      purpleCaps: 0
+    };
+  }
+  if (!playerData.careerRecords) {
+    playerData.careerRecords = {
+      highestScore: 0,
+      highestScoreBalls: 0,
+      highestScoreNotOut: false,
+      bestBowlingWickets: 0,
+      bestBowlingRuns: 999,
+      bestBowlingOversBalls: 0,
+      bestBowlingEconomy: 99
+    };
+  }
 
   return playerData;
+}
+
+function getFairMarketSalary(playerData) {
+  ensurePlayerRuntimeState(playerData);
+  const overall = playerData.ratings?.overall || 50;
+  const batting = playerData.ratings?.batting || 25;
+  const bowling = playerData.ratings?.bowling || 25;
+  const allRound = playerData.ratings?.allRound || 38;
+  const age = Number(playerData.age) || 27;
+  const hasBowlingProfile = (playerData.bowlingType || "none") !== "none";
+
+  let baseValue = 0.2;
+  if (overall > 55) baseValue += (overall - 55) * 0.06;
+  if (overall > 68) baseValue += (overall - 68) * 0.14;
+  if (overall > 78) baseValue += (overall - 78) * 0.34;
+  if (overall > 86) baseValue += (overall - 86) * 0.7;
+  if (overall > 92) baseValue += (overall - 92) * 1.15;
+
+  let multiplier = 1;
+
+  if (age <= 24) multiplier += 0.015;
+  else if (age <= 27) multiplier += 0.008;
+  else if (age >= 34) multiplier -= 0.07;
+  else if (age >= 31) multiplier -= 0.025;
+
+  if (playerData.opener) multiplier += 0.012;
+  if (playerData.deathBowl) multiplier += 0.018;
+  if (batting >= 78) multiplier += 0.018;
+  if (hasBowlingProfile && bowling >= 72) multiplier += 0.022;
+  if (batting >= 68 && bowling >= 58) multiplier += 0.04;
+  if (allRound >= 72) multiplier += 0.018;
+  multiplier += Math.max(0, overall - 90) * 0.006;
+
+  return roundToOneDecimal(clamp(baseValue * multiplier, 0.2, 18));
+}
+
+function refreshGeneratedContracts() {
+  teams.forEach((team) => {
+    team.players.forEach((playerData) => {
+      const fairMarketSalary = getFairMarketSalary(playerData);
+      playerData.marketValue = fairMarketSalary;
+      if (playerData.contract === null || playerData.contract === undefined || playerData.contract === "") {
+        playerData.contract = fairMarketSalary;
+      }
+    });
+  });
+}
+
+function getPlayerAuctionValue(playerData) {
+  if (!playerData) {
+    return 0;
+  }
+  if (playerData.marketValue === null || playerData.marketValue === undefined || playerData.marketValue === "") {
+    playerData.marketValue = getFairMarketSalary(playerData);
+  }
+  return Number(playerData.marketValue) || 0;
 }
 
 function calculateRatings(playerData) {
@@ -832,7 +946,7 @@ function initControls() {
 
   document.getElementById("simulate-season").addEventListener("click", () => {
     if (state.season.champion) {
-      restartSeason();
+      continueSimulation();
       return;
     }
     if (!validateImpactSubsBeforeSimulation()) {
@@ -844,6 +958,7 @@ function initControls() {
       return;
     }
     state.season = simulateSeason();
+    recordCompletedSeasonAwards();
     state.matchLog = [...state.season.featuredMatches];
     renderStandings();
     renderAwards();
@@ -876,6 +991,7 @@ function renderAll() {
 
   if (document.getElementById("franchise-team-select")) {
     initSimulatorHowToPlayOverlay();
+    initOffseasonModals();
     renderFeaturedMatchup();
     renderTeamCards();
     renderRoster();
@@ -958,6 +1074,7 @@ function renderFeaturedMatchup() {
 }
 
 function initHowToPlayOverlay(steps) {
+  const getSteps = typeof steps === "function" ? steps : () => steps;
   const trigger = document.getElementById("how-to-play-trigger");
   const overlay = document.getElementById("how-to-play-overlay");
   const backdrop = document.getElementById("how-to-play-backdrop");
@@ -974,24 +1091,28 @@ function initHowToPlayOverlay(steps) {
   }
 
   if (trigger.dataset.bound === "true") {
-    return;
+    return {
+      openAtStep: typeof overlay.__openAtStep === "function" ? overlay.__openAtStep : null
+    };
   }
 
   let activeStep = 0;
   let previousScrollY = 0;
 
   function renderHowToPlayStep() {
-    const step = steps[activeStep];
+    const currentSteps = getSteps();
+    const step = currentSteps[activeStep];
     label.textContent = step.label;
     title.textContent = step.title;
     content.innerHTML = step.content;
-    dots.innerHTML = steps.map((_, index) => `<span class="how-to-play-dot ${index === activeStep ? "is-active" : ""}"></span>`).join("");
+    dots.innerHTML = currentSteps.map((_, index) => `<span class="how-to-play-dot ${index === activeStep ? "is-active" : ""}"></span>`).join("");
     prevButton.disabled = false;
     nextButton.disabled = false;
   }
 
   function scrollToHowToPlayStep() {
-    const step = steps[activeStep];
+    const currentSteps = getSteps();
+    const step = currentSteps[activeStep];
     if (!step.target) {
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
@@ -1003,22 +1124,27 @@ function initHowToPlayOverlay(steps) {
   }
 
   function setHowToPlayStep(nextIndex) {
-    activeStep = (nextIndex + steps.length) % steps.length;
+    const currentSteps = getSteps();
+    activeStep = (nextIndex + currentSteps.length) % currentSteps.length;
     renderHowToPlayStep();
     scrollToHowToPlayStep();
   }
 
-  function openHowToPlay() {
+  function openHowToPlayAtStep(stepIndex = 0) {
     previousScrollY = window.scrollY;
     overlay.hidden = false;
     document.body.classList.add("how-to-play-open");
-    setHowToPlayStep(0);
+    setHowToPlayStep(stepIndex);
+  }
+
+  function openHowToPlay() {
+    openHowToPlayAtStep(0);
   }
 
   function closeHowToPlay() {
     overlay.hidden = true;
     document.body.classList.remove("how-to-play-open");
-    window.scrollTo({ top: previousScrollY, behavior: "auto" });
+    scrollToHowToPlayStep();
   }
 
   trigger.addEventListener("click", openHowToPlay);
@@ -1040,6 +1166,10 @@ function initHowToPlayOverlay(steps) {
   });
 
   trigger.dataset.bound = "true";
+  overlay.__openAtStep = openHowToPlayAtStep;
+  return {
+    openAtStep: openHowToPlayAtStep
+  };
 }
 
 function initContactOverlay() {
@@ -1080,88 +1210,430 @@ function initContactOverlay() {
   trigger.dataset.bound = "true";
 }
 
-function initSimulatorHowToPlayOverlay() {
-  initHowToPlayOverlay([
-    {
-      label: "HOW TO PLAY",
-      title: "Simulating Games",
-      content: `
-        <div class="how-to-play-sections">
-          <article class="how-to-play-item">
-            <p class="how-to-play-item-label">Simulate Game</p>
-            <h3>Play the next scheduled match</h3>
-            <p>Run your franchise's next fixture, update the standings, and move the season forward one result at a time.</p>
-          </article>
-          <article class="how-to-play-item">
-            <p class="how-to-play-item-label">Simulate Season</p>
-            <h3>Fast-forward the campaign</h3>
-            <p>Resolve the remaining regular season and playoffs in one pass using your current lineup and impact-player choices.</p>
-          </article>
-          <article class="how-to-play-item">
-            <p class="how-to-play-item-label">Matchup</p>
-            <h3>Use the match card as your preview</h3>
-            <p>Check the next opponent, team overalls, venue context, and week before you simulate, then use the same card to review match results once a game has been played.</p>
-          </article>
-        </div>
-      `,
-      target: null
-    },
-    {
-      label: "HOW TO PLAY",
-      title: "Pick the franchise you want to run",
-      content: `
-        <article class="how-to-play-item how-to-play-item-single">
-          <p class="how-to-play-item-label">Team Hub</p>
-          <h3>Choose Your Team</h3>
-          <p>Use the Team Hub to switch franchises and compare each side's XI strength, batting, and bowling before you commit to a season path.</p>
-        </article>
-      `,
-      target: "#team-hub-section"
-    },
-    {
-      label: "HOW TO PLAY",
-      title: "Tune your active XII before simming",
-      content: `
-        <div class="how-to-play-sections">
-          <article class="how-to-play-item">
-            <p class="how-to-play-item-label">Lineup Builder</p>
-            <h3>Set the order of your active group</h3>
-            <p>Use the Lineup Builder to shape your active XII, reorder the cards, and decide how you want your franchise set up before the next sim.</p>
-          </article>
-          <article class="how-to-play-item">
-            <p class="how-to-play-item-label">Impact Subs</p>
-            <h3>Choose flexible matchup options</h3>
-            <p>Pick the impact-player options from the active group so the simulator can balance batting and bowling changes during a match.</p>
-          </article>
-          <article class="how-to-play-item">
-            <p class="how-to-play-item-label">Bowling Plan</p>
-            <h3>Map out who bowls each over</h3>
-            <p>Open the Bowling Plan from the lineup helper to assign overs manually. Stuck? Click Auto Plan to restore the original bowling plan.</p>
-          </article>
-        </div>
-      `,
-      target: "#lineup-builder-section"
-    },
-    {
-      label: "HOW TO PLAY",
-      title: "Track the race across the league",
-      content: `
-        <div class="how-to-play-sections how-to-play-sections-double">
-          <article class="how-to-play-item">
-            <p class="how-to-play-item-label">League Leaders</p>
-            <h3>Watch awards and season races</h3>
-            <p>Follow the major award battles and season leaders here as the table and individual races change over the course of your sim.</p>
-          </article>
-          <article class="how-to-play-item">
-            <p class="how-to-play-item-label">Top 5 Tracker</p>
-            <h3>Check in with the top 5 across the league</h3>
-            <p>Use the stat selector to check who is leading each category and keep tabs on the current top 5 in runs, wickets, averages, economy, impact, and other leaderboard races.</p>
-          </article>
-        </div>
-      `,
-      target: "#awards-watch-section"
+function openRetentionModal() {
+  const overlay = document.getElementById("retention-overlay");
+  const modal = document.getElementById("retention-modal");
+  const panel = document.getElementById("retention-panel");
+  const title = document.getElementById("retention-title");
+  if (!overlay) {
+    return;
+  }
+  overlay.hidden = false;
+  document.body.classList.add("how-to-play-open");
+  renderRetentionModal();
+  if (modal) {
+    modal.scrollTop = 0;
+  }
+  if (panel) {
+    panel.scrollTop = 0;
+  }
+  window.requestAnimationFrame(() => {
+    if (modal) {
+      modal.scrollTop = 0;
+      modal.focus({ preventScroll: true });
     }
-  ]);
+    if (panel) {
+      panel.scrollTop = 0;
+    }
+    if (title) {
+      title.focus({ preventScroll: true });
+    }
+  });
+}
+
+function closeRetentionModal() {
+  const overlay = document.getElementById("retention-overlay");
+  if (!overlay) {
+    return;
+  }
+  overlay.hidden = true;
+  if (document.getElementById("auction-overlay")?.hidden !== false) {
+    document.body.classList.remove("how-to-play-open");
+  }
+}
+
+function openAuctionModal() {
+  const overlay = document.getElementById("auction-overlay");
+  if (!overlay) {
+    return;
+  }
+  renderAuctionModal();
+  overlay.hidden = false;
+  document.body.classList.add("how-to-play-open");
+}
+
+function closeAuctionModal() {
+  const overlay = document.getElementById("auction-overlay");
+  if (!overlay) {
+    return;
+  }
+  overlay.hidden = true;
+  if (document.getElementById("retention-overlay")?.hidden !== false) {
+    document.body.classList.remove("how-to-play-open");
+  }
+}
+
+function renderRetentionModal() {
+  const panel = document.getElementById("retention-panel");
+  const team = getWorkingOffseasonTeam(state.franchiseTeam);
+  if (!panel || !team || !state.offseason) {
+    return;
+  }
+  const retainedSet = state.offseason.retainedMap[state.franchiseTeam];
+  const retainedPlayers = team.players.filter((playerData) => retainedSet.has(playerData.offseasonId));
+  const releasedPlayers = team.players.filter((playerData) => !retainedSet.has(playerData.offseasonId));
+  const retainedSalary = retainedPlayers.reduce((total, playerData) => total + (Number(playerData.contract) || 0), 0);
+  const remainingPurse = Math.max(0, state.offseason.salaryCap - retainedSalary);
+
+  panel.innerHTML = `
+    <div class="offseason-summary-grid">
+      <article class="offseason-summary-card">
+        <span>Next Season</span>
+        <strong>${state.offseason.year}</strong>
+      </article>
+      <article class="offseason-summary-card">
+        <span>Retained Salary</span>
+        <strong>${formatCrores(retainedSalary)}</strong>
+      </article>
+      <article class="offseason-summary-card">
+        <span>Purse After Retentions</span>
+        <strong>${formatCrores(remainingPurse)}</strong>
+      </article>
+    </div>
+    <p class="player-season-line offseason-helper">Choose who to retain for ${findTeam(state.franchiseTeam)?.name || state.franchiseTeam}. Released players go straight into the auction pool.</p>
+    <div class="offseason-roster-list">
+      ${team.players.map((playerData) => {
+        const retained = retainedSet.has(playerData.offseasonId);
+        return `
+          <label class="offseason-player-row ${retained ? "is-retained" : "is-released"}">
+            <input type="checkbox" data-retention-toggle="${escapeHtml(playerData.offseasonId)}" ${retained ? "checked" : ""} />
+            <div class="offseason-player-main">
+              <strong>${escapeHtml(playerData.name)}</strong>
+              <span>${escapeHtml(playerData.role)} | OVR ${playerData.ratings.overall}</span>
+            </div>
+            <span class="offseason-player-tag">${retained ? "Retained" : "Released"}</span>
+            <span class="offseason-player-salary">${formatCrores(playerData.contract)}</span>
+          </label>
+        `;
+      }).join("")}
+    </div>
+    <div class="offseason-footer">
+      <p class="player-season-line">${retainedPlayers.length} retained | ${releasedPlayers.length} released</p>
+      <div class="offseason-actions">
+        <button class="ghost-btn" type="button" data-retention-auto-pick>Auto Retain Core</button>
+        <button class="primary-btn" type="button" data-retention-confirm>Confirm Retentions</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderAuctionModal() {
+  const panel = document.getElementById("auction-panel");
+  if (!panel || !state.offseason) {
+    return;
+  }
+  const currentPlayer = state.offseason.auctionPool[0];
+  const userTeam = getWorkingOffseasonTeam(state.franchiseTeam);
+  const purse = state.offseason.budgets[state.franchiseTeam] || 0;
+  const recentDeals = state.offseason.auctionHistory.slice(0, 8);
+  const userDeals = state.offseason.auctionHistory.filter((entry) => entry.teamCode === state.franchiseTeam);
+  const currentPlayerAuctionValue = getPlayerAuctionValue(currentPlayer);
+  const userRosterSize = userTeam?.players.length || 0;
+  const rosterFull = userRosterSize >= MAX_ROSTER_SIZE;
+  const canAffordCurrentPlayer = purse >= currentPlayerAuctionValue;
+
+  if (!currentPlayer) {
+    panel.innerHTML = `
+      <div class="offseason-history">
+        <p class="how-to-play-item-label">Your Auction Signings</p>
+        ${userDeals.length ? userDeals.map((entry) => `
+          <div class="offseason-history-row">
+            <strong>${escapeHtml(entry.playerName)}</strong>
+            <span>${escapeHtml(entry.teamCode)}</span>
+            <span>${formatCrores(entry.contract)}</span>
+          </div>
+        `).join("") : `<p class="player-season-line">Your team did not buy any players in this auction.</p>`}
+      </div>
+      <div class="offseason-footer">
+        <p class="player-season-line">${userTeam?.players.length || 0} players on your roster | ${formatCrores(purse)} remaining</p>
+        <div class="offseason-actions">
+          <button class="primary-btn" type="button" data-auction-finish>Start Next Season</button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  panel.innerHTML = `
+    <div class="offseason-summary-grid">
+      <article class="offseason-summary-card">
+        <span>Your Purse</span>
+        <strong>${formatCrores(purse)}</strong>
+      </article>
+      <article class="offseason-summary-card">
+        <span>Your Squad</span>
+        <strong>${userRosterSize}/${MAX_ROSTER_SIZE}</strong>
+      </article>
+      <article class="offseason-summary-card">
+        <span>Players Left</span>
+        <strong>${state.offseason.auctionPool.length}</strong>
+      </article>
+    </div>
+    <article class="offseason-auction-card">
+      <div class="player-header">
+        <div>
+          <p class="eyebrow">Auction Pool</p>
+          <h3>${escapeHtml(currentPlayer.name)}</h3>
+          <p class="player-meta">${escapeHtml(currentPlayer.role)} | ${escapeHtml(currentPlayer.originalTeamCode || currentPlayer.teamCode || "FA")}</p>
+        </div>
+        <span class="rating-badge">${currentPlayer.ratings.overall}</span>
+      </div>
+      <div class="player-ratings">
+        <span>Age<strong>${currentPlayer.age || "--"}</strong></span>
+        <span>Cost<strong>${formatCrores(currentPlayerAuctionValue)}</strong></span>
+        <span>Bat<strong>${currentPlayer.ratings.batting}</strong></span>
+        <span>Bowl<strong>${currentPlayer.ratings.bowling}</strong></span>
+      </div>
+      ${rosterFull ? `<p class="player-season-line">Squad full at ${MAX_ROSTER_SIZE} players. Release someone in retentions to buy again next year.</p>` : ""}
+      <div class="offseason-actions offseason-actions-wide">
+        <button class="primary-btn" type="button" data-auction-buy ${!canAffordCurrentPlayer || rosterFull ? "disabled" : ""} title="${rosterFull ? `Squad full (${MAX_ROSTER_SIZE}/${MAX_ROSTER_SIZE})` : !canAffordCurrentPlayer ? "Not enough purse" : "Buy this player"}">${rosterFull ? `Squad Full (${MAX_ROSTER_SIZE}/${MAX_ROSTER_SIZE})` : "Buy Player"}</button>
+        <button class="ghost-btn" type="button" data-auction-pass>Pass to AI</button>
+        <button class="ghost-btn" type="button" data-auction-auto>Auto Complete Auction</button>
+      </div>
+    </article>
+    <div class="offseason-history">
+      <p class="how-to-play-item-label">Recent Auction Results</p>
+      ${recentDeals.length ? recentDeals.map((entry) => `
+        <div class="offseason-history-row">
+          <strong>${escapeHtml(entry.playerName)}</strong>
+          <span>${escapeHtml(entry.teamCode)}</span>
+          <span>${formatCrores(entry.contract)}</span>
+        </div>
+      `).join("") : `<p class="player-season-line">No bids yet. Start the auction to populate this feed.</p>`}
+    </div>
+  `;
+}
+
+function initOffseasonModals() {
+  const retentionOverlay = document.getElementById("retention-overlay");
+  const retentionBackdrop = document.getElementById("retention-backdrop");
+  const retentionClose = document.getElementById("retention-close");
+  const retentionPanel = document.getElementById("retention-panel");
+  const auctionOverlay = document.getElementById("auction-overlay");
+  const auctionBackdrop = document.getElementById("auction-backdrop");
+  const auctionClose = document.getElementById("auction-close");
+  const auctionPanel = document.getElementById("auction-panel");
+  if (!retentionOverlay || !retentionBackdrop || !retentionClose || !retentionPanel || !auctionOverlay || !auctionBackdrop || !auctionClose || !auctionPanel) {
+    return;
+  }
+
+  if (retentionOverlay.dataset.bound === "true") {
+    return;
+  }
+
+  retentionClose.addEventListener("click", closeRetentionModal);
+  retentionBackdrop.addEventListener("click", closeRetentionModal);
+  auctionClose.addEventListener("click", closeAuctionModal);
+  auctionBackdrop.addEventListener("click", closeAuctionModal);
+
+  retentionPanel.addEventListener("click", (event) => {
+    const toggle = event.target.closest("[data-retention-toggle]");
+    if (toggle) {
+      return;
+    }
+    if (event.target.closest("[data-retention-auto-pick]")) {
+      const team = getWorkingOffseasonTeam(state.franchiseTeam);
+      if (!team || !state.offseason) {
+        return;
+      }
+      state.offseason.retainedMap[state.franchiseTeam] = getAutoRetainedIds(team.players, 0.7, team.players.length);
+      renderRetentionModal();
+      return;
+    }
+    if (event.target.closest("[data-retention-confirm]")) {
+      finalizeRetentionPhase();
+      closeRetentionModal();
+      openAuctionModal();
+    }
+  });
+
+  retentionPanel.addEventListener("change", (event) => {
+    const toggle = event.target.closest("[data-retention-toggle]");
+    if (!toggle || !state.offseason) {
+      return;
+    }
+    const retainedSet = state.offseason.retainedMap[state.franchiseTeam];
+    if (toggle.checked) {
+      if (!retainedSet.has(toggle.dataset.retentionToggle) && retainedSet.size >= MAX_ROSTER_SIZE) {
+        toggle.checked = false;
+        renderRetentionModal();
+        return;
+      }
+      retainedSet.add(toggle.dataset.retentionToggle);
+    } else {
+      retainedSet.delete(toggle.dataset.retentionToggle);
+    }
+    renderRetentionModal();
+  });
+
+  auctionPanel.addEventListener("click", (event) => {
+    if (!state.offseason) {
+      return;
+    }
+    const currentPlayer = state.offseason.auctionPool[0];
+    if (event.target.closest("[data-auction-finish]")) {
+      closeAuctionModal();
+      completeOffseasonAndStartNextSeason();
+      return;
+    }
+    if (!currentPlayer) {
+      return;
+    }
+    if (event.target.closest("[data-auction-buy]")) {
+      resolveAuctionPlayer(currentPlayer, true);
+      renderAuctionModal();
+      return;
+    }
+    if (event.target.closest("[data-auction-pass]")) {
+      resolveAuctionPlayer(currentPlayer, false);
+      renderAuctionModal();
+      return;
+    }
+    if (event.target.closest("[data-auction-auto]")) {
+      while (state.offseason.auctionPool.length) {
+        autoResolveAuctionPlayer(state.offseason.auctionPool[0]);
+      }
+      renderAuctionModal();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") {
+      return;
+    }
+    if (!retentionOverlay.hidden) {
+      closeRetentionModal();
+    }
+    if (!auctionOverlay.hidden) {
+      closeAuctionModal();
+    }
+  });
+
+  retentionOverlay.dataset.bound = "true";
+}
+
+function initSimulatorHowToPlayOverlay() {
+  const getSteps = () => {
+    const steps = [
+      {
+        label: "HOW TO PLAY",
+        title: "Simulating Games",
+        content: `
+          <div class="how-to-play-sections">
+            <article class="how-to-play-item">
+              <p class="how-to-play-item-label">Simulate Game</p>
+              <h3>Play the next scheduled match</h3>
+              <p>Run your franchise's next fixture, update the standings, and move the season forward one result at a time.</p>
+            </article>
+            <article class="how-to-play-item">
+              <p class="how-to-play-item-label">Simulate Season</p>
+              <h3>Fast-forward the campaign</h3>
+              <p>Resolve the remaining regular season and playoffs in one pass using your current lineup and impact-player choices.</p>
+            </article>
+            <article class="how-to-play-item">
+              <p class="how-to-play-item-label">Matchup</p>
+              <h3>Use the match card as your preview</h3>
+              <p>Check the next opponent, team overalls, venue context, and week before you simulate, then use the same card to review match results once a game has been played.</p>
+            </article>
+          </div>
+        `,
+        target: null
+      },
+      {
+        label: "HOW TO PLAY",
+        title: "Pick the franchise you want to run",
+        content: `
+          <article class="how-to-play-item how-to-play-item-single">
+            <p class="how-to-play-item-label">Team Hub</p>
+            <h3>Choose Your Team</h3>
+            <p>Use the Team Hub to switch franchises and compare each side's XI strength, batting, and bowling before you commit to a season path.</p>
+          </article>
+        `,
+        target: "#team-hub-section"
+      },
+      {
+        label: "HOW TO PLAY",
+        title: "Tune your active XII before simming",
+        content: `
+          <div class="how-to-play-sections">
+            <article class="how-to-play-item">
+              <p class="how-to-play-item-label">Lineup Builder</p>
+              <h3>Set the order of your active group</h3>
+              <p>Use the Lineup Builder to shape your active XII, reorder the cards, and decide how you want your franchise set up before the next sim.</p>
+            </article>
+            <article class="how-to-play-item">
+              <p class="how-to-play-item-label">Impact Subs</p>
+              <h3>Choose flexible matchup options</h3>
+              <p>Pick the impact-player options from the active group so the simulator can balance batting and bowling changes during a match.</p>
+            </article>
+            <article class="how-to-play-item">
+              <p class="how-to-play-item-label">Bowling Plan</p>
+              <h3>Map out who bowls each over</h3>
+              <p>Open the Bowling Plan from the lineup helper to assign overs manually. Stuck? Click Auto Plan to restore the original bowling plan.</p>
+            </article>
+          </div>
+        `,
+        target: "#lineup-builder-section"
+      },
+      {
+        label: "HOW TO PLAY",
+        title: "Track the race across the league",
+        content: `
+          <div class="how-to-play-sections how-to-play-sections-double">
+            <article class="how-to-play-item">
+              <p class="how-to-play-item-label">League Leaders</p>
+              <h3>Watch awards and season races</h3>
+              <p>Follow the major award battles and season leaders here as the table and individual races change over the course of your sim.</p>
+            </article>
+            <article class="how-to-play-item">
+              <p class="how-to-play-item-label">Top 5 Tracker</p>
+              <h3>Check in with the top 5 across the league</h3>
+              <p>Use the stat selector to check who is leading each category and keep tabs on the current top 5 in runs, wickets, averages, economy, impact, and other leaderboard races.</p>
+            </article>
+          </div>
+        `,
+        target: "#awards-watch-section"
+      }
+    ];
+
+    if (state.continueSimUnlocked) {
+      steps.push({
+        label: "HOW TO PLAY",
+        title: "Carry your franchise into the next year",
+        content: `
+          <div class="how-to-play-sections how-to-play-sections-double">
+            <article class="how-to-play-item">
+              <p class="how-to-play-item-label">Continue Sim</p>
+              <h3>Move into the offseason and next season</h3>
+              <p>After a full season ends, Continue Sim is planned to push your franchise into the next year instead of simply replaying the same campaign.</p>
+            </article>
+            <article class="how-to-play-item">
+              <p class="how-to-play-item-label">What Changes</p>
+              <h3>Mini-auction, releases, and ratings updates</h3>
+              <p>The next-year flow is intended to include a mini-auction, decisions on which players to let go, and rating changes that reshape the league from season to season.</p>
+            </article>
+          </div>
+        `,
+        target: "#lineup-builder-section"
+      });
+    }
+
+    return steps;
+  };
+  const controls = initHowToPlayOverlay(getSteps);
+  openSimulatorHowToPlayStep = controls?.openAtStep
+    ? (stepIndex) => controls.openAtStep(stepIndex)
+    : null;
 }
 
 function initCustomHowToPlayOverlay() {
@@ -1299,14 +1771,17 @@ function updateSimulationControls() {
   }
 
   if (state.season.champion) {
-    nextButton.textContent = "Restart Season";
+    nextButton.textContent = "Restart Sim";
     nextButton.className = "primary-btn";
-    seasonButton.hidden = true;
-    seasonButton.style.display = "none";
+    seasonButton.textContent = "Continue Sim";
+    seasonButton.hidden = false;
+    seasonButton.style.display = "";
     return;
   }
 
   nextButton.textContent = "Simulate Game";
+  nextButton.className = "primary-btn";
+  seasonButton.textContent = "Simulate Season";
   seasonButton.hidden = false;
   seasonButton.style.display = "";
 }
@@ -1376,12 +1851,56 @@ function toggleLineupCardFlip(teamCode, playerData) {
   state.lineupCardFlips[key] = true;
 }
 
+function getLineupCardView(teamCode, playerData) {
+  return state.lineupCardViews[getLineupCardPlayerKey(teamCode, playerData)] || "stats";
+}
+
+function setLineupCardView(teamCode, playerData, view) {
+  state.lineupCardViews[getLineupCardPlayerKey(teamCode, playerData)] = view;
+}
+
 function getSeasonSnapshotForPlayer(teamCode, playerData) {
   const seasonStats = state.season?.playerStats?.find((entry) => (
     entry.teamCode === teamCode &&
     ((playerData.customId && entry.customId === playerData.customId) || entry.name === playerData.name)
   ));
   return seasonStats || createSeasonPlayerSnapshot(playerData, teamCode);
+}
+
+function getHistoricHighestScore(playerData, seasonStats) {
+  ensurePlayerRuntimeState(playerData);
+  const career = playerData.careerRecords;
+  const useSeasonValue = (seasonStats.highestScore || 0) > (career.highestScore || 0)
+    || (
+      (seasonStats.highestScore || 0) === (career.highestScore || 0) &&
+      (seasonStats.highestScore || 0) > 0 &&
+      (seasonStats.highestScoreBalls || 0) > 0 &&
+      ((career.highestScoreBalls || 0) === 0 || (seasonStats.highestScoreBalls || 0) < (career.highestScoreBalls || 0))
+    );
+  const score = useSeasonValue ? (seasonStats.highestScore || 0) : (career.highestScore || 0);
+  const notOut = useSeasonValue ? Boolean(seasonStats.highestScoreNotOut) : Boolean(career.highestScoreNotOut);
+  return score > 0 ? `${score}${notOut ? "*" : ""}` : "--";
+}
+
+function getHistoricBestBowling(playerData, seasonStats) {
+  ensurePlayerRuntimeState(playerData);
+  const career = playerData.careerRecords;
+  const seasonWickets = seasonStats.bestBowlingWickets || 0;
+  const seasonEconomy = seasonStats.bestBowlingEconomy ?? 99;
+  const seasonRuns = seasonStats.bestBowlingRuns ?? 999;
+  const useSeasonValue = seasonWickets > (career.bestBowlingWickets || 0)
+    || (
+      seasonWickets === (career.bestBowlingWickets || 0) &&
+      seasonEconomy < (career.bestBowlingEconomy ?? 99)
+    )
+    || (
+      seasonWickets === (career.bestBowlingWickets || 0) &&
+      seasonEconomy === (career.bestBowlingEconomy ?? 99) &&
+      seasonRuns < (career.bestBowlingRuns ?? 999)
+    );
+  const wickets = useSeasonValue ? seasonWickets : (career.bestBowlingWickets || 0);
+  const runs = useSeasonValue ? seasonRuns : (career.bestBowlingRuns ?? 999);
+  return wickets > 0 ? `${wickets}/${runs}` : "--";
 }
 
 function buildLineupBackStats(playerData, teamCode) {
@@ -1426,6 +1945,32 @@ function buildLineupBackStats(playerData, teamCode) {
   };
 }
 
+function buildLineupBackProfile(playerData, teamCode) {
+  const seasonStats = getSeasonSnapshotForPlayer(teamCode, playerData);
+  const highestScore = getHistoricHighestScore(playerData, seasonStats);
+  const bestBowling = getHistoricBestBowling(playerData, seasonStats);
+  const age = playerData.age || seasonStats.age || "--";
+  const contractValue = playerData.contract ?? seasonStats.contract;
+  const contract = contractValue !== null && contractValue !== undefined && contractValue !== ""
+    ? `${Number(contractValue).toFixed(Number(contractValue) % 1 === 0 ? 0 : 1)} cr`
+    : "--";
+  const awardCounts = ensurePlayerRuntimeState(playerData).awardCounts;
+
+  return {
+    summary: "Player Details",
+    details: [
+      { label: "Age", value: `${age}` },
+      { label: "Contract", value: contract },
+      { label: "HS", value: highestScore },
+      { label: "BBF", value: bestBowling },
+      { label: "Best Subs", value: `${awardCounts.bestSubs || 0}` },
+      { label: "MVPs", value: `${awardCounts.mvps || 0}` },
+      { label: "Orange Caps", value: `${awardCounts.orangeCaps || 0}` },
+      { label: "Purple Caps", value: `${awardCounts.purpleCaps || 0}` }
+    ]
+  };
+}
+
 function renderRoster() {
   return renderRosterWithStatsCard();
   const team = findTeam(state.franchiseTeam);
@@ -1463,7 +2008,6 @@ function renderRoster() {
         <span>Econ<strong>${playerData.ratings.econ}</strong></span>
         <span>WktTk<strong>${playerData.ratings.wkts}</strong></span>
       </div>
-      <p class="player-season-line">Style ${playerData.battingStyle} | Role ${playerData.role}</p>
       <p class="player-season-line">${playerData.inStartingXi ? "Inside the active playing XII for the next game." : "Currently outside the XII. Move this card above slot 13 to activate it."}</p>
     </article>
   `).join("");
@@ -1547,8 +2091,10 @@ function renderRosterWithStatsCard() {
 
   document.getElementById("player-grid").innerHTML = roster.map((playerData) => {
     const stats = buildLineupBackStats(playerData, team.code);
+    const profile = buildLineupBackProfile(playerData, team.code);
     const playerKey = getLineupCardPlayerKey(team.code, playerData);
     const isFlipped = isLineupCardFlipped(team.code, playerData);
+    const activeBackView = getLineupCardView(team.code, playerData);
 
     return `
       <article class="player-card lineup-card ${playerData.inStartingXi ? "is-starting-xi" : "is-bench"} ${state.selectedLineupSwap?.teamCode === team.code && state.selectedLineupSwap?.index === playerData.lineupIndex ? "is-selected" : ""} ${isFlipped ? "is-flipped" : ""}" draggable="true" data-lineup-card="${playerData.lineupIndex}">
@@ -1576,12 +2122,19 @@ function renderRosterWithStatsCard() {
               <span>Econ<strong>${playerData.ratings.econ}</strong></span>
               <span>WktTk<strong>${playerData.ratings.wkts}</strong></span>
             </div>
-            <p class="player-season-line">Style ${playerData.battingStyle} | Role ${playerData.role}</p>
-            <button class="player-ratings-toggle lineup-card-front-toggle" type="button" data-lineup-stats-toggle data-lineup-player-key="${escapeHtml(playerKey)}" aria-label="${isFlipped ? "Show rating breakdown" : "Show player stats"}" aria-pressed="${isFlipped ? "true" : "false"}">
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M5 18V11M12 18V7M19 18V13" />
-              </svg>
-            </button>
+            <div class="lineup-card-toggle-row">
+              <button class="player-ratings-toggle lineup-card-front-toggle ${activeBackView === "profile" && isFlipped ? "is-active" : ""}" type="button" data-lineup-profile-toggle data-lineup-player-key="${escapeHtml(playerKey)}" aria-label="Show player card details" aria-pressed="${activeBackView === "profile" && isFlipped ? "true" : "false"}">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <circle cx="11" cy="11" r="5.5" />
+                  <path d="M16 16L21 21" />
+                </svg>
+              </button>
+              <button class="player-ratings-toggle lineup-card-front-toggle ${activeBackView === "stats" && isFlipped ? "is-active" : ""}" type="button" data-lineup-stats-toggle data-lineup-player-key="${escapeHtml(playerKey)}" aria-label="Show player stats" aria-pressed="${activeBackView === "stats" && isFlipped ? "true" : "false"}">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M5 18V11M12 18V7M19 18V13" />
+                </svg>
+              </button>
+            </div>
           </section>
           <section class="lineup-card-face lineup-card-back">
             <div class="player-header">
@@ -1591,28 +2144,47 @@ function renderRosterWithStatsCard() {
               </div>
               <span class="rating-badge">${playerData.ratings.overall}</span>
             </div>
-            <div class="lineup-card-stats-summary">${stats.summary}</div>
-            <div class="lineup-card-stats-block">
-              <p class="lineup-card-stats-label">Batting</p>
-              <div class="lineup-card-stats-grid">
-                ${stats.batting.map((item) => `
-                  <span><small>${item.label}</small><strong>${item.value}</strong></span>
-                `).join("")}
+            <div class="lineup-card-stats-summary">${activeBackView === "profile" ? profile.summary : stats.summary}</div>
+            ${activeBackView === "profile" ? `
+              <div class="lineup-card-stats-block">
+                <p class="lineup-card-stats-label">Profile</p>
+                <div class="lineup-card-stats-grid">
+                  ${profile.details.map((item) => `
+                    <span><small>${item.label}</small><strong>${item.value}</strong></span>
+                  `).join("")}
+                </div>
               </div>
-            </div>
-            <div class="lineup-card-stats-block">
-              <p class="lineup-card-stats-label">Bowling</p>
-              <div class="lineup-card-stats-grid">
-                ${stats.bowling.map((item) => `
-                  <span><small>${item.label}</small><strong>${item.value}</strong></span>
-                `).join("")}
+            ` : `
+              <div class="lineup-card-stats-block">
+                <p class="lineup-card-stats-label">Batting</p>
+                <div class="lineup-card-stats-grid">
+                  ${stats.batting.map((item) => `
+                    <span><small>${item.label}</small><strong>${item.value}</strong></span>
+                  `).join("")}
+                </div>
               </div>
+              <div class="lineup-card-stats-block">
+                <p class="lineup-card-stats-label">Bowling</p>
+                <div class="lineup-card-stats-grid">
+                  ${stats.bowling.map((item) => `
+                    <span><small>${item.label}</small><strong>${item.value}</strong></span>
+                  `).join("")}
+                </div>
+              </div>
+            `}
+            <div class="lineup-card-toggle-row lineup-card-toggle-row-back">
+              <button class="player-ratings-toggle lineup-card-back-toggle ${activeBackView === "profile" ? "is-active" : ""}" type="button" data-lineup-profile-toggle data-lineup-player-key="${escapeHtml(playerKey)}" aria-label="Show player card details" aria-pressed="${activeBackView === "profile" ? "true" : "false"}">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <circle cx="11" cy="11" r="5.5" />
+                  <path d="M16 16L21 21" />
+                </svg>
+              </button>
+              <button class="player-ratings-toggle lineup-card-back-toggle ${activeBackView === "stats" ? "is-active" : ""}" type="button" data-lineup-stats-toggle data-lineup-player-key="${escapeHtml(playerKey)}" aria-label="Show player stats" aria-pressed="${activeBackView === "stats" ? "true" : "false"}">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M5 18V11M12 18V7M19 18V13" />
+                </svg>
+              </button>
             </div>
-            <button class="player-ratings-toggle lineup-card-back-toggle" type="button" data-lineup-stats-toggle data-lineup-player-key="${escapeHtml(playerKey)}" aria-label="${isFlipped ? "Show rating breakdown" : "Show player stats"}" aria-pressed="${isFlipped ? "true" : "false"}">
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M5 18V11M12 18V7M19 18V13" />
-              </svg>
-            </button>
           </section>
         </div>
       </article>
@@ -1634,14 +2206,43 @@ function renderRosterWithStatsCard() {
       if (!targetPlayer) {
         return;
       }
-      toggleLineupCardFlip(team.code, targetPlayer);
+      if (isLineupCardFlipped(team.code, targetPlayer) && getLineupCardView(team.code, targetPlayer) === "stats") {
+        delete state.lineupCardFlips[playerKey];
+        renderRosterWithStatsCard();
+        return;
+      }
+      setLineupCardView(team.code, targetPlayer, "stats");
+      state.lineupCardFlips[playerKey] = true;
+      renderRosterWithStatsCard();
+    });
+  });
+
+  document.querySelectorAll("[data-lineup-profile-toggle]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const playerKey = button.dataset.lineupPlayerKey;
+      const targetPlayer = roster.find((entry) => getLineupCardPlayerKey(team.code, entry) === playerKey);
+      if (!targetPlayer) {
+        return;
+      }
+      if (isLineupCardFlipped(team.code, targetPlayer) && getLineupCardView(team.code, targetPlayer) === "profile") {
+        delete state.lineupCardFlips[playerKey];
+        renderRosterWithStatsCard();
+        return;
+      }
+      setLineupCardView(team.code, targetPlayer, "profile");
+      state.lineupCardFlips[playerKey] = true;
       renderRosterWithStatsCard();
     });
   });
 
   document.querySelectorAll("[data-lineup-card]").forEach((card) => {
     card.addEventListener("click", (event) => {
-      if (event.target.closest("[data-impact-sub]") || event.target.closest("[data-lineup-stats-toggle]")) {
+      if (
+        event.target.closest("[data-impact-sub]") ||
+        event.target.closest("[data-lineup-stats-toggle]") ||
+        event.target.closest("[data-lineup-profile-toggle]")
+      ) {
         return;
       }
       const clickedIndex = Number(card.dataset.lineupCard);
@@ -1836,22 +2437,32 @@ function renderImpactSubWarning(teamCode) {
   if (!container) return;
   if (state.lineupValidationTeam === teamCode && getImpactSubNames(teamCode).length !== 2) {
     container.innerHTML = `
-      <div class="lineup-warning">
-        <strong>Choose 2 impact players before simulating.</strong>
-        <span>Select exactly two players from the first 12 cards using the Impact Player button.</span>
+      <div class="lineup-warning lineup-helper-row">
+        <div>
+          <strong>Choose 2 impact players before simulating.</strong>
+          <span>Select exactly two players from the first 12 cards using the Impact Player button.</span>
+        </div>
+        <div class="lineup-helper-actions">
+          <button id="auto-starting-xii" class="ghost-btn lineup-helper-action" type="button">Auto XII</button>
+          <button id="open-bowling-plan" class="ghost-btn lineup-helper-action" type="button">Bowling Plan</button>
+        </div>
       </div>
     `;
-    return;
-  }
-  container.innerHTML = `
-    <div class="lineup-helper lineup-helper-row">
-      <div>
-        <strong>Impact Players</strong>
-        <span>The active XII is the first 12 players. Select 2 impact players from that group.</span>
+  } else {
+    container.innerHTML = `
+      <div class="lineup-helper lineup-helper-row">
+        <div>
+          <strong>Impact Players</strong>
+          <span>The active XII is the first 12 players. Select 2 impact players from that group.</span>
+        </div>
+        <div class="lineup-helper-actions">
+          <button id="auto-starting-xii" class="ghost-btn lineup-helper-action" type="button">Auto XII</button>
+          <button id="open-bowling-plan" class="ghost-btn lineup-helper-action" type="button">Bowling Plan</button>
+        </div>
       </div>
-      <button id="open-bowling-plan" class="ghost-btn lineup-helper-action" type="button">Bowling Plan</button>
-    </div>
-  `;
+    `;
+  }
+  document.getElementById("auto-starting-xii")?.addEventListener("click", () => autoAssignStartingLineup(teamCode));
   document.getElementById("open-bowling-plan")?.addEventListener("click", () => openBowlingPlanModal());
 }
 
@@ -2107,6 +2718,178 @@ function validateImpactSubsBeforeSimulation(teamCode = state.franchiseTeam) {
   return false;
 }
 
+function getLineupOpeningScore(playerData) {
+  return (playerData.opener ? 22 : 0) + (playerData.ratings?.batting || 25) + (playerData.ratings?.composure || 25) * 0.32;
+}
+
+function getLineupTopOrderScore(playerData) {
+  return (playerData.ratings?.batting || 25) + (playerData.ratings?.composure || 25) * 0.35 + (playerData.opener ? 8 : 0);
+}
+
+function getLineupMiddleOrderScore(playerData) {
+  return (playerData.ratings?.batting || 25) + (playerData.ratings?.allRound || 38) * 0.22 + (playerData.ratings?.composure || 25) * 0.18;
+}
+
+function getLineupFinisherScore(playerData) {
+  return (playerData.ratings?.batting || 25) + (playerData.ratings?.intent || 25) * 0.38 + (playerData.ratings?.allRound || 38) * 0.18 - (playerData.opener ? 5 : 0);
+}
+
+function getLineupBowlerScore(playerData) {
+  return playerData.ratings?.bowling || 25;
+}
+
+function pickLineupCandidates(remainingPlayers, count, scorer, selectedIds, predicate = () => true) {
+  return [...remainingPlayers]
+    .filter((playerData) => !selectedIds.has(playerData.customId || playerData.name))
+    .filter(predicate)
+    .sort((a, b) => scorer(b) - scorer(a))
+    .slice(0, count);
+}
+
+function getAutoStartingLineupPlan(teamCode) {
+  const team = findTeam(teamCode);
+  if (!team) {
+    return { lineupNames: [], battingGroupNames: [], bowlingGroupNames: [] };
+  }
+
+  const players = team.players.map((playerData) => ensurePlayerRuntimeState(playerData));
+  const selectedIds = new Set();
+  const selectedPlayers = [];
+  const addPlayers = (candidates) => {
+    candidates.forEach((playerData) => {
+      const key = playerData.customId || playerData.name;
+      if (selectedIds.has(key) || selectedPlayers.length >= Math.min(12, players.length)) {
+        return;
+      }
+      selectedIds.add(key);
+      selectedPlayers.push(playerData);
+    });
+  };
+
+  addPlayers(pickLineupCandidates(players, 2, getLineupOpeningScore, selectedIds));
+  addPlayers(pickLineupCandidates(players, 2, getLineupTopOrderScore, selectedIds, (playerData) => (playerData.ratings?.batting || 25) >= 55));
+  addPlayers(pickLineupCandidates(players, 2, getLineupMiddleOrderScore, selectedIds));
+  addPlayers(pickLineupCandidates(players, 1, getLineupFinisherScore, selectedIds));
+  addPlayers(pickLineupCandidates(players, 4, getLineupBowlerScore, selectedIds, (playerData) => (playerData.bowlingType || "none") !== "none" || (playerData.ratings?.bowling || 25) >= 42));
+  addPlayers(pickLineupCandidates(players, 12, (playerData) => (playerData.ratings?.overall || 50), selectedIds));
+
+  const chosenTwelve = selectedPlayers.slice(0, Math.min(12, players.length));
+  const openingPair = [...chosenTwelve].sort((a, b) => getLineupOpeningScore(b) - getLineupOpeningScore(a)).slice(0, 2);
+  const openingIds = new Set(openingPair.map((playerData) => playerData.customId || playerData.name));
+  const remainingChosen = chosenTwelve.filter((playerData) => !openingIds.has(playerData.customId || playerData.name));
+  const bowlingCore = [...remainingChosen]
+    .sort((a, b) => getLineupBowlerScore(b) - getLineupBowlerScore(a))
+    .slice(0, Math.min(4, remainingChosen.length));
+  const bowlingIds = new Set(bowlingCore.map((playerData) => playerData.customId || playerData.name));
+  const battingCore = remainingChosen.filter((playerData) => !bowlingIds.has(playerData.customId || playerData.name));
+  const orderedBowlingCore = [...bowlingCore]
+    .sort((a, b) => (b.ratings?.batting || 25) - (a.ratings?.batting || 25) || getLineupBowlerScore(b) - getLineupBowlerScore(a));
+  const orderedBattingCore = [
+    ...battingCore
+      .sort((a, b) => getLineupTopOrderScore(b) - getLineupTopOrderScore(a))
+      .slice(0, Math.min(2, battingCore.length)),
+    ...battingCore
+      .sort((a, b) => getLineupMiddleOrderScore(b) - getLineupMiddleOrderScore(a))
+      .filter((playerData, index, array) => index < array.length)
+  ];
+  const seenOrderedIds = new Set();
+  const orderedTwelve = [...openingPair, ...orderedBattingCore, ...orderedBowlingCore]
+    .filter((playerData) => {
+      const key = playerData.customId || playerData.name;
+      if (seenOrderedIds.has(key)) {
+        return false;
+      }
+      seenOrderedIds.add(key);
+      return true;
+    })
+    .slice(0, chosenTwelve.length);
+
+  const remainingBench = players
+    .filter((playerData) => !seenOrderedIds.has(playerData.customId || playerData.name))
+    .sort((a, b) => (b.ratings?.overall || 50) - (a.ratings?.overall || 50));
+
+  return {
+    lineupNames: [...orderedTwelve, ...remainingBench].map((playerData) => playerData.name),
+    battingGroupNames: [...openingPair, ...orderedBattingCore].map((playerData) => playerData.name),
+    bowlingGroupNames: orderedBowlingCore.map((playerData) => playerData.name)
+  };
+}
+
+function getAutoImpactSubNames(teamCode, autoPlan) {
+  const team = findTeam(teamCode);
+  if (!team) {
+    return [];
+  }
+
+  const byName = new Map(team.players.map((playerData) => [playerData.name, ensurePlayerRuntimeState(playerData)]));
+  const bowlingGroup = autoPlan.bowlingGroupNames
+    .map((name) => byName.get(name))
+    .filter(Boolean);
+  const battingGroup = autoPlan.battingGroupNames
+    .map((name) => byName.get(name))
+    .filter(Boolean);
+
+  const weakestBattingBowler = [...bowlingGroup]
+    .sort((a, b) => (a.ratings?.batting || 25) - (b.ratings?.batting || 25) || (a.ratings?.bowling || 25) - (b.ratings?.bowling || 25))[0];
+  const weakestBowlingBatter = [...battingGroup]
+    .sort((a, b) => (a.ratings?.bowling || 25) - (b.ratings?.bowling || 25) || (a.ratings?.batting || 25) - (b.ratings?.batting || 25))[0];
+
+  return [...new Set([weakestBattingBowler?.name, weakestBowlingBatter?.name].filter(Boolean))].slice(0, 2);
+}
+
+function positionImpactPlayersForAutoXii(teamCode, lineup, impactNames) {
+  if (impactNames.length !== 2) {
+    return lineup;
+  }
+
+  const team = findTeam(teamCode);
+  if (!team) {
+    return lineup;
+  }
+
+  const adjusted = [...lineup];
+  const battingByName = Object.fromEntries(
+    team.players.map((playerData) => [playerData.name, ensurePlayerRuntimeState(playerData).ratings?.batting || 25])
+  );
+  const [firstImpact, secondImpact] = impactNames;
+  const weakerBatter = (battingByName[firstImpact] || 25) <= (battingByName[secondImpact] || 25) ? firstImpact : secondImpact;
+  const strongerBatter = weakerBatter === firstImpact ? secondImpact : firstImpact;
+  const movePlayerToIndex = (playerName, targetIndex) => {
+    const currentIndex = adjusted.indexOf(playerName);
+    if (currentIndex === -1 || targetIndex < 0 || targetIndex >= adjusted.length || currentIndex === targetIndex) {
+      return;
+    }
+    [adjusted[targetIndex], adjusted[currentIndex]] = [adjusted[currentIndex], adjusted[targetIndex]];
+  };
+
+  if (adjusted.indexOf(strongerBatter) >= 12) {
+    movePlayerToIndex(strongerBatter, Math.min(10, adjusted.length - 1));
+  }
+  movePlayerToIndex(weakerBatter, Math.min(11, adjusted.length - 1));
+  return adjusted;
+}
+
+function autoAssignStartingLineup(teamCode) {
+  const autoPlan = getAutoStartingLineupPlan(teamCode);
+  let lineup = autoPlan.lineupNames;
+  if (!lineup.length) {
+    return;
+  }
+  const autoImpactNames = getAutoImpactSubNames(teamCode, autoPlan);
+  if (autoImpactNames.length === 2) {
+    lineup = positionImpactPlayersForAutoXii(teamCode, lineup, autoImpactNames);
+  }
+  state.teamLineups[teamCode] = lineup;
+  state.impactSubs[teamCode] = autoImpactNames.length === 2 ? autoImpactNames : getDefaultImpactSubNames(teamCode);
+  state.bowlingPlans[teamCode] = buildDefaultBowlingPlan(teamCode);
+  state.bowlingPlanValidationTeam = null;
+  state.lineupValidationTeam = null;
+  state.selectedLineupSwap = null;
+  renderFeaturedMatchup();
+  renderTeamCards();
+  renderRoster();
+}
+
 function updateLineupSlot(teamCode, slotIndex, playerName) {
   const lineup = [...getLineupForTeam(teamCode)];
   const existingIndex = lineup.indexOf(playerName);
@@ -2290,21 +3073,41 @@ function simulateNextPlayoffGame() {
       state.season.playoffs.results.qualifier1,
       ...state.season.featuredMatches
     ].filter(Boolean).slice(0, 10);
+    recordCompletedSeasonAwards();
   }
 
   return result;
 }
 
 function restartSeason() {
+  startFreshSimulation("Season reset. Set your lineup and simulate the next game on the schedule.");
+}
+
+function continueSimulation() {
+  state.continueSimUnlocked = true;
+  if (!state.offseason) {
+    state.offseason = buildOffseasonState();
+  }
+  if (state.offseason.phase === "retention") {
+    openRetentionModal();
+    return;
+  }
+  openAuctionModal();
+}
+
+function startFreshSimulation(message) {
+  resetPersistentAwardCounts();
   state.season = resetSeason();
+  state.offseason = null;
   state.matchLog = [];
   state.tickerLabel = "";
   state.tickerItems = [];
   state.lastCelebratedChampion = null;
   state.lastCelebratedTournamentMvp = null;
+  state.lastSeasonLossChampion = null;
   syncFeaturedMatchToSeason();
   renderAll();
-  renderFeaturedResultMessage("Season reset. Set your lineup and simulate the next game on the schedule.");
+  renderFeaturedResultMessage(message);
 }
 
 function renderRatingsPage() {
@@ -2522,8 +3325,711 @@ function clonePlayer(playerData) {
       weaknesses: [...playerData.profile.weaknesses],
       bowlingStrengths: [...playerData.profile.bowlingStrengths],
       bowlingWeaknesses: [...playerData.profile.bowlingWeaknesses]
-    }
+    },
+    awardCounts: { ...playerData.awardCounts },
+    careerRecords: { ...playerData.careerRecords },
+    marketValue: playerData.marketValue
   };
+}
+
+function pickRandom(array) {
+  return array[randomInt(0, array.length - 1)];
+}
+
+function generateWeightedRookieAge() {
+  const ageWeights = [
+    { age: 19, weight: 2 },
+    { age: 20, weight: 4 },
+    { age: 21, weight: 7 },
+    { age: 22, weight: 10 },
+    { age: 23, weight: 13 },
+    { age: 24, weight: 16 },
+    { age: 25, weight: 13 },
+    { age: 26, weight: 10 },
+    { age: 27, weight: 7 },
+    { age: 28, weight: 5 },
+    { age: 29, weight: 3 },
+    { age: 30, weight: 2 }
+  ];
+  const totalWeight = ageWeights.reduce((sum, entry) => sum + entry.weight, 0);
+  let roll = Math.random() * totalWeight;
+  for (const entry of ageWeights) {
+    roll -= entry.weight;
+    if (roll <= 0) {
+      return entry.age;
+    }
+  }
+  return 24;
+}
+
+function generateRookieName(existingNames) {
+  const indianOrigin = Math.random() < 0.7;
+  const firstNames = indianOrigin ? INDIAN_FIRST_NAMES : OVERSEAS_FIRST_NAMES;
+  const lastNames = indianOrigin ? INDIAN_LAST_NAMES : OVERSEAS_LAST_NAMES;
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    const candidate = `${pickRandom(firstNames)} ${pickRandom(lastNames)}`;
+    if (!existingNames.has(candidate)) {
+      existingNames.add(candidate);
+      return candidate;
+    }
+  }
+  const fallback = `${pickRandom(firstNames)} ${pickRandom(lastNames)} ${randomInt(2, 99)}`;
+  existingNames.add(fallback);
+  return fallback;
+}
+
+function getRookieOverallTargets() {
+  const values = [];
+  for (let index = 0; index < OFFSEASON_NEW_PLAYER_COUNT; index += 1) {
+    const shaped = Math.pow(Math.random(), 0.82);
+    values.push(Math.round(OFFSEASON_NEW_PLAYER_MIN_OVR + shaped * (OFFSEASON_NEW_PLAYER_MAX_OVR - OFFSEASON_NEW_PLAYER_MIN_OVR)));
+  }
+  values.sort((a, b) => b - a);
+  values[0] = Math.min(OFFSEASON_NEW_PLAYER_MAX_OVR, values[0]);
+  values[values.length - 1] = OFFSEASON_NEW_PLAYER_MIN_OVR;
+  return values;
+}
+
+function getRandomRookieBlueprint() {
+  const templates = [
+    { type: "opener", role: "Technical Opener", battingStyle: Math.random() < 0.26 ? "LHB" : "RHB", bowlingType: "none", bowlingHand: "none", opener: true, deathBowl: false },
+    { type: "batter", role: "Shotmaker", battingStyle: Math.random() < 0.23 ? "LHB" : "RHB", bowlingType: "none", bowlingHand: "none", opener: false, deathBowl: false },
+    { type: "anchor", role: "Run Bank Anchor", battingStyle: Math.random() < 0.2 ? "LHB" : "RHB", bowlingType: "none", bowlingHand: "none", opener: false, deathBowl: false },
+    { type: "finisher", role: "Finishing Closer", battingStyle: Math.random() < 0.18 ? "LHB" : "RHB", bowlingType: "none", bowlingHand: "none", opener: false, deathBowl: false },
+    { type: "pace-bowler", role: "Seam Bowler", battingStyle: Math.random() < 0.16 ? "LHB" : "RHB", bowlingType: "pacer", bowlingHand: Math.random() < 0.22 ? "left" : "right", opener: false, deathBowl: Math.random() < 0.42 },
+    { type: "spinner", role: "Wrist Spinner", battingStyle: Math.random() < 0.18 ? "LHB" : "RHB", bowlingType: "spinner", bowlingHand: Math.random() < 0.18 ? "left" : "right", opener: false, deathBowl: false },
+    { type: "seam-allrounder", role: "Seam All-Rounder", battingStyle: Math.random() < 0.22 ? "LHB" : "RHB", bowlingType: "pacer", bowlingHand: Math.random() < 0.2 ? "left" : "right", opener: false, deathBowl: Math.random() < 0.28 },
+    { type: "spin-allrounder", role: "Control All-Rounder", battingStyle: Math.random() < 0.2 ? "LHB" : "RHB", bowlingType: "spinner", bowlingHand: Math.random() < 0.18 ? "left" : "right", opener: false, deathBowl: false }
+  ];
+  const weights = [5, 7, 3, 3, 5, 3, 2, 2];
+  const totalWeight = weights.reduce((sum, value) => sum + value, 0);
+  let roll = Math.random() * totalWeight;
+  for (let index = 0; index < templates.length; index += 1) {
+    roll -= weights[index];
+    if (roll <= 0) {
+      return templates[index];
+    }
+  }
+  return templates[1];
+}
+
+function buildRookieTargetsFromBlueprint(blueprint, age, targetOverall) {
+  const ageBonus = age <= 22 ? 2 : age <= 24 ? 1 : age >= 29 ? -1 : 0;
+  const quality = targetOverall + ageBonus;
+  let intent = 60;
+  let composure = 60;
+  let econ = 25;
+  let wkts = 25;
+  let fielding = clamp(70 + Math.round((quality - 60) * 0.5) + randomInt(-3, 4), 70, 92);
+  let leadership = clamp(70 + Math.round((quality - 64) * 0.35) + randomInt(-3, 3), 70, 90);
+
+  switch (blueprint.type) {
+    case "opener":
+      intent = clamp(quality + randomInt(-2, 4), 58, 84);
+      composure = clamp(quality + randomInt(0, 6), 60, 88);
+      break;
+    case "batter":
+      intent = clamp(quality + randomInt(1, 7), 60, 86);
+      composure = clamp(quality + randomInt(-2, 4), 58, 84);
+      break;
+    case "anchor":
+      intent = clamp(quality + randomInt(-5, 1), 54, 78);
+      composure = clamp(quality + randomInt(2, 8), 62, 88);
+      break;
+    case "finisher":
+      intent = clamp(quality + randomInt(4, 9), 64, 90);
+      composure = clamp(quality + randomInt(-4, 2), 54, 80);
+      break;
+    case "pace-bowler":
+      intent = clamp(45 + Math.round((quality - 64) * 0.45) + randomInt(-3, 3), 42, 72);
+      composure = clamp(46 + Math.round((quality - 64) * 0.42) + randomInt(-3, 3), 42, 74);
+      econ = clamp(quality + randomInt(-2, 4), 58, 86);
+      wkts = clamp(quality + randomInt(-1, 5), 58, 88);
+      break;
+    case "spinner":
+      intent = clamp(44 + Math.round((quality - 64) * 0.4) + randomInt(-3, 2), 42, 70);
+      composure = clamp(48 + Math.round((quality - 64) * 0.45) + randomInt(-2, 4), 44, 78);
+      econ = clamp(quality + randomInt(0, 5), 58, 88);
+      wkts = clamp(quality + randomInt(-3, 3), 56, 84);
+      break;
+    case "seam-allrounder":
+      intent = clamp(quality + randomInt(-1, 5), 58, 82);
+      composure = clamp(quality + randomInt(-2, 4), 56, 80);
+      econ = clamp(quality - 4 + randomInt(-3, 3), 52, 78);
+      wkts = clamp(quality - 5 + randomInt(-3, 4), 50, 78);
+      break;
+    case "spin-allrounder":
+      intent = clamp(quality + randomInt(-2, 4), 56, 80);
+      composure = clamp(quality + randomInt(0, 5), 58, 82);
+      econ = clamp(quality - 4 + randomInt(-2, 4), 52, 78);
+      wkts = clamp(quality - 6 + randomInt(-3, 3), 50, 76);
+      break;
+    default:
+      break;
+  }
+
+  return { intent, composure, econ, wkts, fielding, leadership };
+}
+
+function tuneRookieToOverall(playerData, targetOverall) {
+  ensurePlayerRuntimeState(playerData);
+  let safety = 0;
+  while (safety < 18 && playerData.ratings.overall !== targetOverall) {
+    safety += 1;
+    const difference = targetOverall - playerData.ratings.overall;
+    const battingLean = (playerData.bowlingType || "none") === "none" ? 1 : isAllRounder(playerData) ? 0.75 : 0.45;
+    playerData.makePlayerTargets.intent = clamp(playerData.makePlayerTargets.intent + difference * battingLean, 25, 99);
+    playerData.makePlayerTargets.composure = clamp(playerData.makePlayerTargets.composure + difference * Math.max(0.35, battingLean * 0.85), 25, 99);
+    if ((playerData.bowlingType || "none") !== "none") {
+      const bowlingLean = isBowler(playerData) ? 0.95 : isAllRounder(playerData) ? 0.68 : 0.4;
+      playerData.makePlayerTargets.econ = clamp(playerData.makePlayerTargets.econ + difference * bowlingLean, 25, 99);
+      playerData.makePlayerTargets.wkts = clamp(playerData.makePlayerTargets.wkts + difference * bowlingLean, 25, 99);
+    }
+    playerData.fielding = clamp((playerData.fielding ?? 78) + difference * 0.18, 70, 94);
+    playerData.leadership = clamp((playerData.leadership ?? 72) + difference * 0.12, 70, 92);
+    playerData.ratings = calculateRatings(playerData);
+  }
+
+  while (playerData.ratings.overall > OFFSEASON_NEW_PLAYER_MAX_OVR && safety < 32) {
+    safety += 1;
+    playerData.makePlayerTargets.intent = clamp(playerData.makePlayerTargets.intent - 0.9, 25, 99);
+    playerData.makePlayerTargets.composure = clamp(playerData.makePlayerTargets.composure - 0.9, 25, 99);
+    if ((playerData.bowlingType || "none") !== "none") {
+      playerData.makePlayerTargets.econ = clamp(playerData.makePlayerTargets.econ - 0.8, 25, 99);
+      playerData.makePlayerTargets.wkts = clamp(playerData.makePlayerTargets.wkts - 0.8, 25, 99);
+    }
+    playerData.ratings = calculateRatings(playerData);
+  }
+  while (playerData.ratings.overall < OFFSEASON_NEW_PLAYER_MIN_OVR && safety < 46) {
+    safety += 1;
+    playerData.makePlayerTargets.intent = clamp(playerData.makePlayerTargets.intent + 0.9, 25, 99);
+    playerData.makePlayerTargets.composure = clamp(playerData.makePlayerTargets.composure + 0.9, 25, 99);
+    if ((playerData.bowlingType || "none") !== "none") {
+      playerData.makePlayerTargets.econ = clamp(playerData.makePlayerTargets.econ + 0.8, 25, 99);
+      playerData.makePlayerTargets.wkts = clamp(playerData.makePlayerTargets.wkts + 0.8, 25, 99);
+    }
+    playerData.ratings = calculateRatings(playerData);
+  }
+}
+
+function generateOffseasonRookieClass() {
+  const existingNames = new Set(getAllPlayers().map((playerData) => playerData.name));
+  const targetOveralls = getRookieOverallTargets();
+  return targetOveralls.map((targetOverall, index) => {
+    const blueprint = getRandomRookieBlueprint();
+    const age = generateWeightedRookieAge();
+    const targets = buildRookieTargetsFromBlueprint(blueprint, age, targetOverall);
+    const rookie = player(
+      generateRookieName(existingNames),
+      blueprint.role,
+      blueprint.battingStyle,
+      targets.intent,
+      targets.composure,
+      targets.econ,
+      targets.wkts,
+      blueprint.bowlingType,
+      blueprint.bowlingHand,
+      blueprint.opener,
+      blueprint.deathBowl,
+      targets.fielding,
+      targets.leadership
+    );
+    rookie.teamCode = "FA";
+    rookie.originalTeamCode = "ROOKIE";
+    rookie.age = age;
+    rookie.contract = null;
+    rookie.marketValue = null;
+    rookie.customId = `rookie-${state.seasonYear + 1}-${index}-${stableHash(`${rookie.name}-${age}-${blueprint.role}`)}`;
+    rookie.offseasonId = rookie.customId;
+    ensurePlayerRuntimeState(rookie);
+    tuneRookieToOverall(rookie, targetOverall);
+    rookie.role = determinePlayerArchetype(rookie);
+    rookie.archetype = rookie.role;
+    rookie.roleProfile = inferRoleProfile(rookie);
+    rookie.profile = inferPlayerProfile(rookie);
+    rookie.marketValue = getFairMarketSalary(rookie);
+    return rookie;
+  });
+}
+
+function isSamePlayerRecord(playerData, awardPlayer) {
+  return Boolean(
+    playerData &&
+    awardPlayer &&
+    playerData.name === awardPlayer.name &&
+    (playerData.customId || null) === (awardPlayer.customId || null) &&
+    (playerData.teamCode || null) === (awardPlayer.teamCode || null)
+  );
+}
+
+function findAwardWinningPlayer(awardPlayer) {
+  if (!awardPlayer?.teamCode) {
+    return null;
+  }
+  const team = findTeam(awardPlayer.teamCode);
+  return team?.players.find((playerData) => isSamePlayerRecord(playerData, awardPlayer)) || null;
+}
+
+function recordCompletedSeasonAwards() {
+  if (!state.season?.champion || state.recordedAwardSeasonYear === state.seasonYear) {
+    return;
+  }
+
+  const awards = state.season.awards || {};
+  const mappings = [
+    { awardPlayer: awards.impactPlayer, key: "bestSubs" },
+    { awardPlayer: awards.mvp, key: "mvps" },
+    { awardPlayer: awards.bestBatter, key: "orangeCaps" },
+    { awardPlayer: awards.bestBowler, key: "purpleCaps" }
+  ];
+
+  mappings.forEach(({ awardPlayer, key }) => {
+    const winner = findAwardWinningPlayer(awardPlayer);
+    if (!winner) {
+      return;
+    }
+    ensurePlayerRuntimeState(winner);
+    winner.awardCounts[key] = (winner.awardCounts[key] || 0) + 1;
+  });
+
+  state.recordedAwardSeasonYear = state.seasonYear;
+}
+
+function resetPersistentAwardCounts() {
+  teams.forEach((team) => {
+    team.players.forEach((playerData) => {
+      ensurePlayerRuntimeState(playerData);
+      playerData.awardCounts = {
+        bestSubs: 0,
+        mvps: 0,
+        orangeCaps: 0,
+        purpleCaps: 0
+      };
+      playerData.careerRecords = {
+        highestScore: 0,
+        highestScoreBalls: 0,
+        highestScoreNotOut: false,
+        bestBowlingWickets: 0,
+        bestBowlingRuns: 999,
+        bestBowlingOversBalls: 0,
+        bestBowlingEconomy: 99
+      };
+    });
+  });
+  state.recordedAwardSeasonYear = null;
+}
+
+function getOffseasonPlayerId(playerData, fallbackTeamCode, index = 0) {
+  return playerData.offseasonId || `${fallbackTeamCode}:${playerData.customId || playerData.name}:${index}`;
+}
+
+function cloneTeamForOffseason(team) {
+  return {
+    ...team,
+    players: team.players.map((playerData, index) => {
+      const cloned = clonePlayer(playerData);
+      cloned.teamCode = team.code;
+      cloned.offseasonId = getOffseasonPlayerId(cloned, team.code, index);
+      return cloned;
+    })
+  };
+}
+
+function buildOffseasonState() {
+  const workingTeams = teams.map((team) => cloneTeamForOffseason(team));
+  const userTeam = workingTeams.find((team) => team.code === state.franchiseTeam);
+  const retainedMap = {};
+  workingTeams.forEach((team) => {
+    retainedMap[team.code] = team.code === state.franchiseTeam
+      ? getAutoRetainedIds(team.players, 0.7, team.players.length)
+      : getAutoRetainedIds(team.players, 0.62, 14);
+  });
+
+  return {
+    phase: "retention",
+    year: state.seasonYear + 1,
+    salaryCap: OFFSEASON_SALARY_CAP,
+    workingTeams,
+    rookieClass: generateOffseasonRookieClass(),
+    retainedMap,
+    budgets: Object.fromEntries(workingTeams.map((team) => [team.code, OFFSEASON_SALARY_CAP])),
+    releasedPool: [],
+    auctionPool: [],
+    unsoldPool: [],
+    auctionIndex: 0,
+    auctionHistory: [],
+    userTeamCode: state.franchiseTeam,
+    userTargetRosterSize: Math.min(MAX_ROSTER_SIZE, Math.max(18, userTeam ? userTeam.players.length : 18))
+  };
+}
+
+function getWorkingOffseasonTeam(teamCode) {
+  return state.offseason?.workingTeams?.find((team) => team.code === teamCode) || null;
+}
+
+function getRetainedSalaryForTeam(teamCode) {
+  const team = getWorkingOffseasonTeam(teamCode);
+  const retainedSet = state.offseason?.retainedMap?.[teamCode];
+  if (!team || !retainedSet) {
+    return 0;
+  }
+  return team.players
+    .filter((playerData) => retainedSet.has(playerData.offseasonId))
+    .reduce((total, playerData) => total + (Number(playerData.contract) || 0), 0);
+}
+
+function getRemainingPurse(teamCode) {
+  return Math.max(0, OFFSEASON_SALARY_CAP - getRetainedSalaryForTeam(teamCode) - (state.offseason?.budgets?.[teamCode] !== undefined
+    ? OFFSEASON_SALARY_CAP - state.offseason.budgets[teamCode]
+    : 0));
+}
+
+function getDisplayedOffseasonBudget(teamCode) {
+  return state.offseason?.budgets?.[teamCode] ?? Math.max(0, OFFSEASON_SALARY_CAP - getRetainedSalaryForTeam(teamCode));
+}
+
+function formatCrores(value) {
+  const numeric = Number(value) || 0;
+  return `${numeric.toFixed(numeric % 1 === 0 ? 0 : 1)} cr`;
+}
+
+function scoreRetentionCandidate(playerData) {
+  const overall = playerData.ratings?.overall || 50;
+  const age = Number(playerData.age) || 28;
+  const contract = Number(playerData.contract) || 0;
+  const ageBonus = age <= 24 ? 6 : age <= 28 ? 3 : age >= 34 ? -6 : 0;
+  const roleBonus = playerData.opener || playerData.deathBowl ? 2 : 0;
+  return overall + ageBonus + roleBonus - contract * 1.15;
+}
+
+function getGuaranteedRetentionIds(players) {
+  return new Set(
+    players
+      .filter((playerData) => {
+        const overall = playerData.ratings?.overall || 0;
+        const age = Number(playerData.age) || 99;
+        return overall >= 86 || (overall >= 85 && age <= 27);
+      })
+      .map((playerData) => playerData.offseasonId)
+  );
+}
+
+function getAutoRetainedIds(players, retentionRate = 0.7, maxPlayers = players.length) {
+  const ranked = [...players].sort((a, b) => scoreRetentionCandidate(b) - scoreRetentionCandidate(a));
+  const guaranteedIds = getGuaranteedRetentionIds(players);
+  const retainCount = clamp(Math.round(players.length * retentionRate), 9, Math.min(players.length, maxPlayers, MAX_ROSTER_SIZE));
+  const retained = new Set();
+
+  ranked.forEach((playerData) => {
+    if (retained.size >= retainCount || !guaranteedIds.has(playerData.offseasonId)) {
+      return;
+    }
+    retained.add(playerData.offseasonId);
+  });
+
+  ranked.forEach((playerData) => {
+    if (retained.size >= retainCount) {
+      return;
+    }
+    retained.add(playerData.offseasonId);
+  });
+
+  return retained;
+}
+
+function applyAiRetentions() {
+  state.offseason.workingTeams.forEach((team) => {
+    if (team.code === state.franchiseTeam) {
+      return;
+    }
+    state.offseason.retainedMap[team.code] = getAutoRetainedIds(team.players, 0.62, 14);
+  });
+}
+
+function finalizeRetentionPhase() {
+  applyAiRetentions();
+  const releasedPool = [];
+  const rookieClass = (state.offseason.rookieClass || []).map((playerData) => clonePlayer(playerData));
+  state.offseason.workingTeams.forEach((team) => {
+    const retainedSet = state.offseason.retainedMap[team.code];
+    const retainedPlayers = [];
+    team.players.forEach((playerData) => {
+      if (retainedSet.has(playerData.offseasonId)) {
+        retainedPlayers.push(playerData);
+      } else {
+        const released = clonePlayer(playerData);
+        released.offseasonId = playerData.offseasonId;
+        released.originalTeamCode = team.code;
+        releasedPool.push(released);
+      }
+    });
+    team.players = retainedPlayers;
+    team.teamRatings = calculateTeamRatings(team.players);
+    team.attackProfile = buildAttackProfile(team.players);
+    state.offseason.budgets[team.code] = Math.max(0, OFFSEASON_SALARY_CAP - retainedPlayers.reduce((total, playerData) => total + (Number(playerData.contract) || 0), 0));
+  });
+
+  state.offseason.phase = "auction";
+  state.offseason.releasedPool = [...releasedPool, ...rookieClass];
+  state.offseason.auctionPool = [...releasedPool, ...rookieClass].sort((a, b) => {
+    const valueDiff = getPlayerAuctionValue(b) - getPlayerAuctionValue(a);
+    if (valueDiff !== 0) return valueDiff;
+    return (b.ratings?.overall || 0) - (a.ratings?.overall || 0);
+  });
+  state.offseason.unsoldPool = [];
+  state.offseason.auctionIndex = 0;
+  state.offseason.auctionHistory = [];
+}
+
+function getAuctionRosterNeedScore(team, playerData) {
+  const rosterSizePenalty = Math.max(0, MAX_ROSTER_SIZE - team.players.length) * 4;
+  const openerNeed = playerData.opener && !team.players.some((entry) => entry.opener) ? 6 : 0;
+  const deathNeed = playerData.deathBowl && !team.players.some((entry) => entry.deathBowl) ? 6 : 0;
+  const bowlingNeed = (playerData.bowlingType || "none") !== "none" && team.players.filter((entry) => (entry.bowlingType || "none") !== "none").length < 6 ? 4 : 0;
+  return rosterSizePenalty + openerNeed + deathNeed + bowlingNeed;
+}
+
+function getBestAuctionBidder(playerData, excludedTeamCode = null) {
+  const auctionValue = getPlayerAuctionValue(playerData);
+  const bidders = state.offseason.workingTeams
+    .filter((team) => team.code !== excludedTeamCode)
+    .filter((team) => team.players.length < MAX_ROSTER_SIZE)
+    .filter((team) => (state.offseason.budgets[team.code] || 0) >= auctionValue)
+    .map((team) => ({
+      team,
+      score: getAuctionRosterNeedScore(team, playerData) + (team.code === state.franchiseTeam ? 0 : 2) + (100 - Math.abs((team.teamRatings?.overall || 75) - (playerData.ratings?.overall || 75))) * 0.03
+    }))
+    .sort((a, b) => b.score - a.score);
+  return bidders[0]?.team || null;
+}
+
+function assignAuctionPlayer(teamCode, playerData) {
+  const team = getWorkingOffseasonTeam(teamCode);
+  if (!team || team.players.length >= MAX_ROSTER_SIZE) {
+    return;
+  }
+  const auctionValue = getPlayerAuctionValue(playerData);
+  const purchased = clonePlayer(playerData);
+  purchased.teamCode = teamCode;
+  purchased.offseasonId = playerData.offseasonId || getOffseasonPlayerId(playerData, teamCode, team.players.length);
+  purchased.contract = auctionValue;
+  purchased.marketValue = auctionValue;
+  team.players = [...team.players, purchased];
+  team.teamRatings = calculateTeamRatings(team.players);
+  team.attackProfile = buildAttackProfile(team.players);
+  state.offseason.budgets[teamCode] = Math.max(0, (state.offseason.budgets[teamCode] || 0) - auctionValue);
+  state.offseason.auctionHistory.unshift({
+    teamCode,
+    playerName: playerData.name,
+    contract: auctionValue
+  });
+}
+
+function resolveAuctionPlayer(playerData, userBuysPlayer = false) {
+  const poolIndex = state.offseason.auctionPool.findIndex((entry) => entry.offseasonId === playerData.offseasonId);
+  if (poolIndex === -1) {
+    return;
+  }
+  const auctionValue = getPlayerAuctionValue(playerData);
+  let winningTeam = null;
+  if (userBuysPlayer) {
+    winningTeam = getWorkingOffseasonTeam(state.franchiseTeam) && (state.offseason.budgets[state.franchiseTeam] || 0) >= auctionValue
+      ? getWorkingOffseasonTeam(state.franchiseTeam)
+      : null;
+  }
+  if (!winningTeam) {
+    winningTeam = getBestAuctionBidder(playerData, userBuysPlayer ? null : state.franchiseTeam);
+  }
+  if (winningTeam) {
+    assignAuctionPlayer(winningTeam.code, playerData);
+  } else {
+    state.offseason.unsoldPool.push(clonePlayer(playerData));
+    state.offseason.auctionHistory.unshift({
+      teamCode: "UNSOLD",
+      playerName: playerData.name,
+      contract: auctionValue
+    });
+  }
+  state.offseason.auctionPool.splice(poolIndex, 1);
+}
+
+function autoResolveAuctionPlayer(playerData) {
+  const poolIndex = state.offseason.auctionPool.findIndex((entry) => entry.offseasonId === playerData.offseasonId);
+  if (poolIndex === -1) {
+    return;
+  }
+  const auctionValue = getPlayerAuctionValue(playerData);
+
+  const winningTeam = getBestAuctionBidder(playerData, null);
+  if (winningTeam) {
+    assignAuctionPlayer(winningTeam.code, playerData);
+  } else {
+    state.offseason.unsoldPool.push(clonePlayer(playerData));
+    state.offseason.auctionHistory.unshift({
+      teamCode: "UNSOLD",
+      playerName: playerData.name,
+      contract: auctionValue
+    });
+  }
+
+  state.offseason.auctionPool.splice(poolIndex, 1);
+}
+
+function getOffseasonFillOrder() {
+  const seasonTable = Array.isArray(state.season?.table) ? state.season.table : [];
+  if (seasonTable.length) {
+    return [...seasonTable]
+      .sort((a, b) => a.points - b.points || a.netRunRate - b.netRunRate || (a.team.teamRatings?.overall || 0) - (b.team.teamRatings?.overall || 0))
+      .map((entry) => entry.team.code);
+  }
+  return [...state.offseason.workingTeams]
+    .sort((a, b) => (a.teamRatings?.overall || 0) - (b.teamRatings?.overall || 0))
+    .map((team) => team.code);
+}
+
+function fillShortRostersFromUnsoldPool() {
+  if (!state.offseason?.unsoldPool?.length) {
+    return;
+  }
+
+  const teamOrder = getOffseasonFillOrder();
+  const MIN_OFFSEASON_ROSTER_SIZE = 14;
+  let madeSelection = true;
+
+  while (madeSelection) {
+    madeSelection = false;
+
+    teamOrder.forEach((teamCode) => {
+      const team = getWorkingOffseasonTeam(teamCode);
+      if (!team || team.players.length >= Math.min(MIN_OFFSEASON_ROSTER_SIZE, MAX_ROSTER_SIZE)) {
+        return;
+      }
+
+      const remainingPurse = state.offseason.budgets[teamCode] || 0;
+      const affordableCandidates = state.offseason.unsoldPool
+        .map((playerData, index) => ({ playerData, index, value: getPlayerAuctionValue(playerData) }))
+        .filter((entry) => entry.value <= remainingPurse)
+        .sort((a, b) => b.value - a.value || (b.playerData.ratings?.overall || 0) - (a.playerData.ratings?.overall || 0));
+
+      const selection = affordableCandidates[0];
+      if (!selection) {
+        return;
+      }
+
+      const playerCopy = clonePlayer(selection.playerData);
+      playerCopy.teamCode = teamCode;
+      playerCopy.offseasonId = getOffseasonPlayerId(playerCopy, teamCode, team.players.length);
+      playerCopy.contract = selection.value;
+      playerCopy.marketValue = selection.value;
+      team.players = [...team.players, playerCopy];
+      team.teamRatings = calculateTeamRatings(team.players);
+      team.attackProfile = buildAttackProfile(team.players);
+      state.offseason.budgets[teamCode] = Math.max(0, remainingPurse - selection.value);
+      state.offseason.unsoldPool.splice(selection.index, 1);
+      madeSelection = true;
+    });
+
+    if (!state.offseason.unsoldPool.length) {
+      return;
+    }
+  }
+}
+
+function seedPlayerProgressionTargets(playerData) {
+  if (!playerData.makePlayerTargets) {
+    playerData.makePlayerTargets = {
+      intent: playerData.ratings?.intent ?? 60,
+      composure: playerData.ratings?.composure ?? 60,
+      econ: playerData.ratings?.econ ?? 25,
+      wkts: playerData.ratings?.wkts ?? 25,
+      fielding: playerData.fielding ?? 78,
+      leadership: playerData.leadership ?? 72
+    };
+  }
+}
+
+function applyOffseasonProgressionToPlayer(playerData, previousSnapshot) {
+  seedPlayerProgressionTargets(playerData);
+  const currentAge = Number(playerData.age) || 27;
+  const nextAge = currentAge + 1;
+  const currentBatting = playerData.ratings?.batting ?? 60;
+  const currentBowling = playerData.ratings?.bowling ?? 25;
+  const rawPerformanceDelta = previousSnapshot
+    ? clamp((previousSnapshot.mvpScore || 0) / 16 + (previousSnapshot.seasonRuns || 0) / 180 - (previousSnapshot.seasonWickets || 0) / 14, -4, 6)
+    : 0;
+  const performanceDelta = nextAge > 34
+    ? 0
+    : nextAge > 32
+    ? clamp(rawPerformanceDelta, -1.5, 1.5)
+    : rawPerformanceDelta;
+  const ageDelta = nextAge <= 24 ? 2 : nextAge <= 29 ? 1 : nextAge <= 33 ? 0 : -2;
+  const volatility = ((playerData.name.length + nextAge) % 5) - 2;
+  const performanceWeight = nextAge < 30 ? 0.65 : 0.35;
+  const ageWeight = nextAge < 30 ? 0.7 : 1;
+  const totalDelta = clamp(ageDelta * ageWeight + performanceDelta * performanceWeight + volatility * 0.35, -4, 4);
+  const battingDelta = totalDelta - getEliteRegressionPenalty(currentBatting);
+  const bowlingDelta = totalDelta - getEliteRegressionPenalty(currentBowling);
+  playerData.age = nextAge;
+  playerData.fielding = clamp((playerData.fielding ?? playerData.makePlayerTargets.fielding ?? 78) + totalDelta * 0.4, 70, 99);
+  playerData.leadership = clamp((playerData.leadership ?? playerData.makePlayerTargets.leadership ?? 72) + (nextAge >= 30 ? 0.8 : 0.2), 70, 99);
+  playerData.makePlayerTargets.intent = applyProgressionSoftCap(playerData.makePlayerTargets.intent, battingDelta, currentBatting);
+  playerData.makePlayerTargets.composure = applyProgressionSoftCap(playerData.makePlayerTargets.composure, battingDelta * 0.8, currentBatting);
+  if ((playerData.bowlingType || "none") !== "none") {
+    playerData.makePlayerTargets.econ = applyProgressionSoftCap(playerData.makePlayerTargets.econ, bowlingDelta * 0.7, currentBowling);
+    playerData.makePlayerTargets.wkts = applyProgressionSoftCap(playerData.makePlayerTargets.wkts, bowlingDelta * 0.7, currentBowling);
+  }
+  playerData.ratings = calculateRatings(playerData);
+  ensurePlayerRuntimeState(playerData);
+}
+
+function refreshAllTeamDerivedState() {
+  teams.forEach((team) => {
+    team.players.forEach((playerData) => {
+      playerData.teamCode = team.code;
+      ensurePlayerRuntimeState(playerData);
+    });
+    team.teamRatings = calculateTeamRatings(team.players);
+    team.attackProfile = buildAttackProfile(team.players);
+  });
+}
+
+function completeOffseasonAndStartNextSeason() {
+  fillShortRostersFromUnsoldPool();
+  const previousStats = new Map(
+    (state.season?.playerStats || []).map((entry) => [`${entry.teamCode}::${entry.customId || entry.name}`, entry])
+  );
+
+  teams = state.offseason.workingTeams.map((team) => ({
+    ...team,
+    players: team.players.map((playerData, index) => {
+      const cloned = clonePlayer(playerData);
+      cloned.teamCode = team.code;
+      cloned.offseasonId = getOffseasonPlayerId(cloned, team.code, index);
+      const previousSnapshot = previousStats.get(`${playerData.originalTeamCode || playerData.teamCode || team.code}::${playerData.customId || playerData.name}`)
+        || previousStats.get(`${team.code}::${playerData.customId || playerData.name}`);
+      applyOffseasonProgressionToPlayer(cloned, previousSnapshot);
+      return cloned;
+    })
+  }));
+
+  refreshAllTeamDerivedState();
+  refreshGeneratedContracts();
+  state.seasonYear += 1;
+  state.recordedAwardSeasonYear = null;
+  state.offseason = null;
+  state.season = resetSeason();
+  state.matchLog = [];
+  state.tickerLabel = "";
+  state.tickerItems = [];
+  state.lastCelebratedChampion = null;
+  state.lastCelebratedTournamentMvp = null;
+  state.lastSeasonLossChampion = null;
+  state.teamLineups = buildDefaultTeamLineups();
+  state.impactSubs = Object.fromEntries(teams.map((team) => [team.code, getDefaultImpactSubNames(team.code)]));
+  state.bowlingPlans = Object.fromEntries(teams.map((team) => [team.code, buildDefaultBowlingPlan(team.code)]));
+  syncFeaturedMatchToSeason();
+  renderAll();
+  renderFeaturedResultMessage(`Season ${state.seasonYear} is ready. Retentions, auction results, and rating changes have been applied.`);
 }
 
 function renderMatchLog() {
@@ -2837,6 +4343,7 @@ function updatePlayers(playerBook, result) {
   const impactEntries = calculateMatchImpactEntries(result.scorecard.first, result.scorecard.second);
   const impactMap = new Map(impactEntries.map((entry) => [`${entry.teamCode}::${entry.name}`, entry]));
   [result.home, result.away].forEach((team) => {
+    const persistentTeam = findTeam(team.code);
     const impactAppearanceNames = new Set(getActiveImpactAppearanceNames(team));
     const seasonParticipants = [
       ...(team.players || []),
@@ -2852,6 +4359,10 @@ function updatePlayers(playerBook, result) {
       found.seasonRuns += battingEntry?.runs || 0;
       found.seasonBallsFaced += battingEntry?.balls || 0;
       updateHighestScore(found, battingEntry);
+      const persistentPlayer = persistentTeam?.players?.find((entry) => (
+        ((playerData.customId || null) && entry.customId === playerData.customId) || entry.name === playerData.name
+      )) || null;
+      updateCareerHighestScore(persistentPlayer, battingEntry);
       if (battingEntry?.didBat && !battingEntry.notOut) {
         found.seasonDismissals = Math.min(found.seasonDismissals + 1, found.matchesPlayed);
       }
@@ -2861,6 +4372,7 @@ function updatePlayers(playerBook, result) {
       found.seasonOversBalls += bowlingEntry ? oversToBalls(bowlingEntry.overs) : 0;
       found.seasonRunsConceded += bowlingEntry?.runs || 0;
       updateBestBowlingFigures(found, bowlingEntry);
+      updateCareerBestBowling(persistentPlayer, bowlingEntry);
       found.seasonCatches += Math.max(0, Math.round((playerData.fielding - 72) / 18));
       found.mvpScore += impactMap.get(`${team.code}::${playerData.name}`)?.totalImpact || 0;
       if (impactAppearanceNames.has(playerData.name)) {
@@ -2930,6 +4442,51 @@ function updateBestBowlingFigures(playerData, bowlingEntry) {
   playerData.bestBowlingRuns = bowlingEntry.runs;
   playerData.bestBowlingOversBalls = oversBalls;
   playerData.bestBowlingEconomy = economy;
+}
+
+function updateCareerHighestScore(playerData, battingEntry) {
+  if (!playerData || !battingEntry?.didBat) {
+    return;
+  }
+  ensurePlayerRuntimeState(playerData);
+  const record = playerData.careerRecords;
+  const isBetterScore = battingEntry.runs > record.highestScore;
+  const isSameScoreFaster = battingEntry.runs === record.highestScore
+    && battingEntry.balls > 0
+    && (record.highestScoreBalls === 0 || battingEntry.balls < record.highestScoreBalls);
+
+  if (!isBetterScore && !isSameScoreFaster) {
+    return;
+  }
+
+  record.highestScore = battingEntry.runs;
+  record.highestScoreBalls = battingEntry.balls || 0;
+  record.highestScoreNotOut = Boolean(battingEntry.notOut);
+}
+
+function updateCareerBestBowling(playerData, bowlingEntry) {
+  if (!playerData || !bowlingEntry || oversToBalls(bowlingEntry.overs) <= 0) {
+    return;
+  }
+  ensurePlayerRuntimeState(playerData);
+  const record = playerData.careerRecords;
+  const oversBalls = oversToBalls(bowlingEntry.overs);
+  const economy = oversBalls > 0 ? bowlingEntry.runs / (oversBalls / 6) : 99;
+  const isBetterWicketHaul = bowlingEntry.wickets > record.bestBowlingWickets;
+  const isSameWicketsBetterEconomy = bowlingEntry.wickets === record.bestBowlingWickets
+    && economy < record.bestBowlingEconomy;
+  const isSameFiguresBetterRuns = bowlingEntry.wickets === record.bestBowlingWickets
+    && economy === record.bestBowlingEconomy
+    && bowlingEntry.runs < record.bestBowlingRuns;
+
+  if (!isBetterWicketHaul && !isSameWicketsBetterEconomy && !isSameFiguresBetterRuns) {
+    return;
+  }
+
+  record.bestBowlingWickets = bowlingEntry.wickets;
+  record.bestBowlingRuns = bowlingEntry.runs;
+  record.bestBowlingOversBalls = oversBalls;
+  record.bestBowlingEconomy = economy;
 }
 
 function getSeasonBattingEntry(result, teamCode, playerName) {
@@ -3650,7 +5207,8 @@ function initMakePlayerPage() {
       removeCustomPlayerFromRuntime(customId);
       const status = document.getElementById("make-player-status");
       if (status) {
-        status.textContent = `Removed ${row.playerName} from ${row.teamCode}.`;
+        const normalizedRow = normalizePlayerRow(row);
+        status.textContent = `Removed ${normalizedRow.playerName} from ${normalizedRow.teamCode}.`;
       }
       renderMakePlayerCustomList();
       renderAll();
@@ -3746,17 +5304,55 @@ function renderMakePlayerCustomList() {
 
   container.innerHTML = `
     <div class="custom-player-list">
-      ${customRows.map((row) => `
+      ${customRows.map((row) => {
+        const normalizedRow = normalizePlayerRow(row);
+        return `
         <article class="custom-player-row">
           <div>
-            <strong>${escapeHtml(row.playerName)}</strong>
+            <strong>${escapeHtml(normalizedRow.playerName)}</strong>
             <p class="player-season-line">${escapeHtml(row.teamCode)} • ${escapeHtml(row.sourceRole)} • ${escapeHtml(row.battingStyle)}</p>
           </div>
-          <button class="ghost-btn custom-player-delete" type="button" data-delete-custom-player="${escapeHtml(row.customId)}" aria-label="Delete ${escapeHtml(row.playerName)}">
+          <button class="ghost-btn custom-player-delete" type="button" data-delete-custom-player="${escapeHtml(normalizedRow.customId)}" aria-label="Delete ${escapeHtml(normalizedRow.playerName)}">
             <span aria-hidden="true">🗑</span>
           </button>
         </article>
-      `).join("")}
+      `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderMakePlayerCustomList() {
+  const container = document.getElementById("make-player-custom-list");
+  if (!container) {
+    return;
+  }
+  const customRows = loadCustomPlayerRows();
+  if (!customRows.length) {
+    container.innerHTML = `
+      <div class="scorecard-block">
+        <p class="player-season-line">No custom players added yet. New players will appear here after you add them.</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="custom-player-list">
+      ${customRows.map((row) => {
+        const normalizedRow = normalizePlayerRow(row);
+        return `
+        <article class="custom-player-row">
+          <div>
+            <strong>${escapeHtml(normalizedRow.playerName)}</strong>
+            <p class="player-season-line">${escapeHtml(normalizedRow.teamCode)} | ${escapeHtml(normalizedRow.sourceRole)} | ${escapeHtml(normalizedRow.battingStyle)}</p>
+          </div>
+          <button class="ghost-btn custom-player-delete" type="button" data-delete-custom-player="${escapeHtml(normalizedRow.customId)}" aria-label="Delete ${escapeHtml(normalizedRow.playerName)}">
+            <span aria-hidden="true">🗑</span>
+          </button>
+        </article>
+      `;
+      }).join("")}
     </div>
   `;
 }
@@ -4033,6 +5629,32 @@ function getLogScaledContribution(value, minInput, maxInput, maxContribution, cu
   const clampedValue = clamp(value, minInput, maxInput);
   const normalized = (clampedValue - minInput) / Math.max(1, maxInput - minInput);
   return (Math.log1p(normalized * curveFactor) / Math.log1p(curveFactor)) * maxContribution;
+}
+
+function getProgressionGainMultiplier(currentRating) {
+  if (currentRating >= 95) return 0.14;
+  if (currentRating >= 92) return 0.24;
+  if (currentRating >= 88) return 0.4;
+  if (currentRating >= 82) return 0.68;
+  return 1;
+}
+
+function getEliteRegressionPenalty(currentRating) {
+  if (currentRating >= 96) return 0.55;
+  if (currentRating >= 93) return 0.28;
+  if (currentRating >= 90) return 0.12;
+  return 0;
+}
+
+function applyProgressionSoftCap(targetValue, delta, currentRating) {
+  if (delta > 0) {
+    return clamp(targetValue + delta * getProgressionGainMultiplier(currentRating), 25, 99);
+  }
+  if (delta < 0) {
+    const declineMultiplier = currentRating >= 95 ? 1.07 : currentRating >= 90 ? 1.03 : 1;
+    return clamp(targetValue + delta * declineMultiplier, 25, 99);
+  }
+  return clamp(targetValue, 25, 99);
 }
 
 function calculateBowlingRatingFromSkills(econ, wkts) {

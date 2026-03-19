@@ -40,6 +40,12 @@ body.bowling-plan-open {
   overflow: hidden;
 }
 
+body.how-to-play-open {
+  height: 100vh;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body::before {
   content: "";
   position: absolute;
@@ -250,6 +256,158 @@ body::before {
   margin: 12px 0 0;
   color: var(--muted);
   line-height: 1.5;
+}
+
+.offseason-modal {
+  width: min(940px, 100%);
+  max-height: min(88vh, 920px);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.offseason-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.offseason-summary-card {
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.offseason-summary-card span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.offseason-summary-card strong {
+  font-size: 1.2rem;
+}
+
+.offseason-helper {
+  margin: 18px 0 14px;
+}
+
+.offseason-roster-list,
+.offseason-history {
+  display: grid;
+  gap: 10px;
+}
+
+.offseason-roster-list {
+  margin-top: 10px;
+}
+
+.offseason-player-row,
+.offseason-history-row {
+  display: grid;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.offseason-player-row {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+
+.offseason-player-row input {
+  width: 18px;
+  height: 18px;
+}
+
+.offseason-player-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.offseason-player-main span,
+.offseason-history-row span {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.offseason-player-tag {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.offseason-player-row.is-retained .offseason-player-tag {
+  color: #0b2a70;
+  background: var(--accent-2);
+}
+
+.offseason-player-row.is-released {
+  opacity: 0.78;
+}
+
+.offseason-player-salary {
+  font-weight: 700;
+}
+
+.offseason-footer,
+.offseason-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.offseason-footer {
+  margin-top: 18px;
+}
+
+.offseason-actions-wide {
+  margin-top: 18px;
+}
+
+.offseason-actions button {
+  flex: 1;
+}
+
+.offseason-footer .offseason-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.35fr);
+  width: min(100%, 420px);
+}
+
+.offseason-footer .offseason-actions .primary-btn {
+  flex: unset;
+}
+
+.offseason-footer .offseason-actions .ghost-btn {
+  flex: unset;
+}
+
+.offseason-auction-card {
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.offseason-history {
+  margin-top: 18px;
+}
+
+.offseason-history-row {
+  grid-template-columns: minmax(0, 1.4fr) auto auto;
 }
 
 .nav-link.active,
@@ -1094,6 +1252,13 @@ select option {
   gap: 6px;
 }
 
+.lineup-helper-actions {
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  justify-content: end;
+  gap: 10px;
+}
+
 .lineup-helper-action {
   align-self: center;
   white-space: nowrap;
@@ -1448,18 +1613,42 @@ select option {
   padding-right: 54px;
 }
 
-.lineup-card-front-toggle,
-.lineup-card-back-toggle {
+.lineup-card-toggle-row {
   position: absolute;
   right: 16px;
   bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 0;
+  width: auto;
+  z-index: 3;
+}
+
+.lineup-card-toggle-row-back {
+  right: 16px;
+  bottom: 16px;
+}
+
+.lineup-card-front-toggle,
+.lineup-card-back-toggle {
+  position: static;
   width: 40px;
   height: 40px;
+  min-height: 40px;
+  min-width: 40px;
   padding: 0;
 }
 
+.lineup-card-back-toggle.is-active,
+.lineup-card-front-toggle.is-active {
+  color: #0b2a70;
+  background: var(--accent-2);
+  border-color: var(--accent-2);
+}
+
 .lineup-card-front .player-season-line {
-  padding-right: 54px;
+  padding-right: 102px;
 }
 
 .player-season-line {
