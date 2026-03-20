@@ -211,8 +211,11 @@
               <p class="eyebrow">Season Stats</p>
               <h3>Top 5 Tracker</h3>
             </div>
-            <label class="season-stats-filter" for="season-stat-select">
-              Stat
+            <div class="selector-row">
+              <select id="season-stat-scope">
+                <option value="season">Season</option>
+                <option value="allTime">All-Time</option>
+              </select>
               <select id="season-stat-select">
                 <option value="runs">Runs</option>
                 <option value="wickets">Wickets</option>
@@ -225,7 +228,7 @@
                 <option value="sixes">Sixes</option>
                 <option value="impact">Impact</option>
               </select>
-            </label>
+            </div>
           </div>
           <div id="season-stat-leaders" class="season-stat-leaders"></div>
         </div>
