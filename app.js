@@ -66,6 +66,10 @@ const state = {
   seasonYear: 2026,
   recordedAwardSeasonYear: null,
   offseason: null,
+  tradeModal: {
+    open: false,
+    activeSlot: null
+  },
   impactSubs: {},
   bowlingPlans: {},
   bowlingPlanValidationTeam: null,
@@ -1271,9 +1275,7 @@ function closeRetentionModal() {
     return;
   }
   overlay.hidden = true;
-  if (document.getElementById("auction-overlay")?.hidden !== false) {
-    document.body.classList.remove("how-to-play-open");
-  }
+  syncGlobalOverlayScrollLock();
 }
 
 function openAuctionModal() {
@@ -1292,9 +1294,641 @@ function closeAuctionModal() {
     return;
   }
   overlay.hidden = true;
-  if (document.getElementById("retention-overlay")?.hidden !== false) {
-    document.body.classList.remove("how-to-play-open");
+  syncGlobalOverlayScrollLock();
+}
+
+function createEmptyTradeState(seedPlayer = null) {
+  return {
+    userSlots: [seedPlayer ? seedPlayer.offseasonId : null, null, null],
+    opponentSlots: [null, null, null],
+    selectedOpponentTeamCode: null,
+    lockedOpponentTeamCode: null,
+    history: state.offseason?.tradeHistory || [],
+    gmMessage: "Select a team and build the package.",
+    officeMessage: "Select a team and see how the package looks.",
+    negotiationState: "idle"
+  };
+}
+
+function canOpenTradeWindow() {
+  return Boolean(state.offseason && state.offseason.phase === "trade");
+}
+
+function openTradeModal(seedPlayerId) {
+  if (!canOpenTradeWindow()) {
+    return;
   }
+  const overlay = document.getElementById("trade-overlay");
+  if (!overlay) {
+    return;
+  }
+  const userTeam = getWorkingOffseasonTeam(state.franchiseTeam);
+  const seedPlayer = userTeam?.players.find((playerData) => playerData.offseasonId === seedPlayerId) || null;
+  state.tradeModal.open = true;
+  state.tradeModal.activeSlot = null;
+  state.offseason.tradeState = createEmptyTradeState(seedPlayer);
+  renderTradeModal();
+  overlay.hidden = false;
+  document.body.classList.add("how-to-play-open");
+}
+
+function syncGlobalOverlayScrollLock() {
+  const overlayIds = [
+    "how-to-play-overlay",
+    "contact-overlay",
+    "bowling-plan-overlay",
+    "retention-overlay",
+    "auction-overlay",
+    "trade-overlay"
+  ];
+  const hasVisibleOverlay = overlayIds.some((id) => {
+    const node = document.getElementById(id);
+    return node && node.hidden === false;
+  });
+  document.body.classList.toggle("how-to-play-open", hasVisibleOverlay);
+}
+
+function closeTradeModal() {
+  const overlay = document.getElementById("trade-overlay");
+  if (!overlay) {
+    return;
+  }
+  overlay.hidden = true;
+  state.tradeModal.open = false;
+  state.tradeModal.activeSlot = null;
+  syncGlobalOverlayScrollLock();
+}
+
+function getPreviousSeasonSnapshotForPlayer(playerData) {
+  if (!playerData || !state.season?.playerStats?.length) {
+    return null;
+  }
+  const identifiers = [
+    `${playerData.originalTeamCode || playerData.teamCode || ""}::${playerData.customId || playerData.name}`,
+    `${playerData.teamCode || ""}::${playerData.customId || playerData.name}`
+  ].filter(Boolean);
+  const directMatch = state.season.playerStats.find((entry) => identifiers.includes(`${entry.teamCode}::${entry.customId || entry.name}`));
+  if (directMatch) {
+    return directMatch;
+  }
+  return state.season.playerStats.find((entry) => (entry.customId && playerData.customId && entry.customId === playerData.customId) || entry.name === playerData.name) || null;
+}
+
+function estimateProjectedSeasonImpact(playerData) {
+  if (!playerData) {
+    return 0;
+  }
+  ensurePlayerRuntimeState(playerData);
+  const overall = playerData.ratings?.overall || 50;
+  const batting = playerData.ratings?.batting || 25;
+  const bowling = playerData.ratings?.bowling || 25;
+  const clutch = playerData.ratings?.clutch || 25;
+  const wkts = playerData.ratings?.wkts || 25;
+  const econ = playerData.ratings?.econ || 25;
+  const hasBowlingRole = (playerData.bowlingType || "none") !== "none";
+  const battingImpactEstimate = Math.max(0, (batting - 50) * 1.15 + (clutch - 52) * 0.24);
+  const bowlingImpactEstimate = hasBowlingRole
+    ? Math.max(0, (bowling - 46) * 0.82 + (wkts - 48) * 0.48 + (econ - 48) * 0.2)
+    : 0;
+  const roleBonus = (playerData.opener ? 2.5 : 0) + (playerData.deathBowl ? 3 : 0);
+  const baseProjection = Math.max(4, (overall - 48) * 0.72 + battingImpactEstimate + bowlingImpactEstimate + roleBonus);
+  return roundToOneDecimal(baseProjection);
+}
+
+function getPlayerTradeValue(playerData) {
+  if (!playerData) {
+    return 0;
+  }
+  ensurePlayerRuntimeState(playerData);
+  const snapshot = getPreviousSeasonSnapshotForPlayer(playerData);
+  const playedGames = Number(snapshot?.matchesPlayed) || 0;
+  const age = Number(playerData.age) || 27;
+  const ageMultiplier = age >= 32 ? 0.98 : 1;
+
+  if (!snapshot || playedGames === 0) {
+    return roundToOneDecimal(estimateProjectedSeasonImpact(playerData) * 2);
+  }
+
+  const impactScore = Number(snapshot.mvpScore) || 0;
+  return roundToOneDecimal(Math.max(1, impactScore) * ageMultiplier);
+}
+
+function getTradeState() {
+  if (!state.offseason?.tradeState) {
+    state.offseason.tradeState = createEmptyTradeState();
+  }
+  return state.offseason.tradeState;
+}
+
+function getTradeSlotPlayers(slotIds = []) {
+  return slotIds
+    .map((offseasonId) => findTradePlayerById(offseasonId))
+    .filter(Boolean);
+}
+
+function findTradePlayerById(offseasonId) {
+  if (!offseasonId || !state.offseason?.workingTeams?.length) {
+    return null;
+  }
+  for (const team of state.offseason.workingTeams) {
+    const found = team.players.find((playerData) => playerData.offseasonId === offseasonId);
+    if (found) {
+      return found;
+    }
+  }
+  return null;
+}
+
+function getLockedTradeOpponentTeamCode() {
+  const tradeState = getTradeState();
+  if (tradeState.selectedOpponentTeamCode) {
+    return tradeState.selectedOpponentTeamCode;
+  }
+  if (tradeState.lockedOpponentTeamCode) {
+    return tradeState.lockedOpponentTeamCode;
+  }
+  const opponentPlayer = getTradeSlotPlayers(tradeState.opponentSlots)[0];
+  return opponentPlayer?.teamCode || null;
+}
+
+function getTradeSalaryRoom(teamCode, outgoingTotal = 0) {
+  return (state.offseason?.budgets?.[teamCode] || 0) + outgoingTotal;
+}
+
+function getTradeAssessment() {
+  if (!state.offseason) {
+    return null;
+  }
+  const tradeState = getTradeState();
+  const userTeam = getWorkingOffseasonTeam(state.franchiseTeam);
+  const opponentTeamCode = getLockedTradeOpponentTeamCode();
+  const opponentTeam = opponentTeamCode ? getWorkingOffseasonTeam(opponentTeamCode) : null;
+  const userPlayers = getTradeSlotPlayers(tradeState.userSlots);
+  const opponentPlayers = getTradeSlotPlayers(tradeState.opponentSlots);
+  const userOutgoingSalary = userPlayers.reduce((total, playerData) => total + (Number(playerData.contract) || 0), 0);
+  const opponentOutgoingSalary = opponentPlayers.reduce((total, playerData) => total + (Number(playerData.contract) || 0), 0);
+  const userOutgoingValue = userPlayers.reduce((total, playerData) => total + getPlayerTradeValue(playerData), 0);
+  const opponentOutgoingValue = opponentPlayers.reduce((total, playerData) => total + getPlayerTradeValue(playerData), 0);
+  const userSalaryPass = opponentPlayers.length > 0 && opponentOutgoingSalary <= getTradeSalaryRoom(state.franchiseTeam, userOutgoingSalary);
+  const opponentSalaryPass = opponentTeam && userOutgoingSalary <= getTradeSalaryRoom(opponentTeam.code, opponentOutgoingSalary);
+  const userRosterAfter = (userTeam?.players.length || 0) - userPlayers.length + opponentPlayers.length;
+  const opponentRosterAfter = opponentTeam ? opponentTeam.players.length - opponentPlayers.length + userPlayers.length : 0;
+  const rosterPass = userRosterAfter <= MAX_ROSTER_SIZE && (!opponentTeam || opponentRosterAfter <= MAX_ROSTER_SIZE);
+  const minimumRosterPass = userRosterAfter >= 14 && (!opponentTeam || opponentRosterAfter >= 14);
+  const valueRatio = opponentOutgoingValue > 0 ? userOutgoingValue / opponentOutgoingValue : (userOutgoingValue > 0 ? Infinity : 1);
+  const opponentNeedsMoreValue = opponentOutgoingValue > 0
+    ? userOutgoingValue < opponentOutgoingValue * 0.8
+    : userOutgoingValue <= 0;
+  const userIsOverpaying = opponentOutgoingValue > 0 && userOutgoingValue > opponentOutgoingValue * 1.4;
+  const valueStatus = opponentNeedsMoreValue
+    ? "Rejected"
+    : valueRatio >= 0.9 && valueRatio <= 1.28
+    ? "Fair"
+    : valueRatio >= 0.8 && valueRatio <= 1.4
+    ? "Close"
+    : "User Overpay";
+  const valueDirection = opponentNeedsMoreValue
+    ? "opponent_underpaid"
+    : userIsOverpaying
+    ? "opponent_overpay"
+    : "balanced";
+  const complete = userPlayers.length > 0 && opponentPlayers.length > 0 && opponentTeam;
+  const feasible = Boolean(complete && userSalaryPass && opponentSalaryPass && rosterPass && minimumRosterPass && valueStatus !== "Rejected");
+  return {
+    complete,
+    feasible,
+    opponentTeam,
+    opponentTeamCode,
+    userPlayers,
+    opponentPlayers,
+    userOutgoingSalary,
+    opponentOutgoingSalary,
+    userOutgoingValue,
+    opponentOutgoingValue,
+    userSalaryPass,
+    opponentSalaryPass,
+    rosterPass,
+    minimumRosterPass,
+    userRosterAfter,
+    opponentRosterAfter,
+    valueRatio,
+    valueStatus,
+    valueDirection
+  };
+}
+
+function getTradePickerPool(activeSlot) {
+  if (!activeSlot || !state.offseason) {
+    return [];
+  }
+  const tradeState = getTradeState();
+  if (activeSlot.side === "user") {
+    const selectedIds = new Set(tradeState.userSlots.filter(Boolean));
+    return (getWorkingOffseasonTeam(state.franchiseTeam)?.players || [])
+      .filter((playerData) => !selectedIds.has(playerData.offseasonId));
+  }
+  const selectedIds = new Set(tradeState.opponentSlots.filter(Boolean));
+  const lockedTeamCode = getLockedTradeOpponentTeamCode();
+  if (!lockedTeamCode) {
+    return [];
+  }
+  const candidateTeams = state.offseason.workingTeams.filter((team) => team.code === lockedTeamCode);
+  return candidateTeams.flatMap((team) => team.players
+    .filter((playerData) => !selectedIds.has(playerData.offseasonId))
+    .map((playerData) => ({ ...playerData, pickerTeamCode: team.code })));
+}
+
+function setTradeActiveSlot(side, index) {
+  const tradeState = getTradeState();
+  if (tradeState.negotiationState === "accepted") {
+    tradeState.negotiationState = "idle";
+    tradeState.gmMessage = "Select a team and build the package.";
+    tradeState.officeMessage = "Select a team and see how the package looks.";
+  }
+  state.tradeModal.activeSlot = { side, index };
+  renderTradeModal();
+}
+
+function addPlayerToTrade(playerId) {
+  if (!state.tradeModal.activeSlot || !state.offseason) {
+    return;
+  }
+  const playerData = findTradePlayerById(playerId);
+  if (!playerData) {
+    return;
+  }
+  const tradeState = getTradeState();
+  if (tradeState.negotiationState === "accepted") {
+    tradeState.negotiationState = "idle";
+  }
+  const { side, index } = state.tradeModal.activeSlot;
+  if (side === "user") {
+    tradeState.userSlots[index] = playerData.offseasonId;
+  } else {
+    const lockedTeamCode = getLockedTradeOpponentTeamCode();
+    if (lockedTeamCode && playerData.teamCode !== lockedTeamCode) {
+      return;
+    }
+    tradeState.opponentSlots[index] = playerData.offseasonId;
+    tradeState.lockedOpponentTeamCode = playerData.teamCode;
+    tradeState.selectedOpponentTeamCode = playerData.teamCode;
+  }
+  tradeState.gmMessage = "Package updated. Send the offer when you're ready.";
+  tradeState.officeMessage = getUserOfficeSuggestion(getTradeAssessment());
+  state.tradeModal.activeSlot = null;
+  renderTradeModal();
+}
+
+function removePlayerFromTrade(side, index) {
+  if (!state.offseason) {
+    return;
+  }
+  const tradeState = getTradeState();
+  if (tradeState.negotiationState === "accepted") {
+    tradeState.negotiationState = "idle";
+  }
+  if (side === "user") {
+    tradeState.userSlots[index] = null;
+  } else {
+    tradeState.opponentSlots[index] = null;
+    const remainingOpponentPlayers = getTradeSlotPlayers(tradeState.opponentSlots);
+    tradeState.lockedOpponentTeamCode = remainingOpponentPlayers[0]?.teamCode || null;
+    tradeState.selectedOpponentTeamCode = remainingOpponentPlayers[0]?.teamCode || tradeState.selectedOpponentTeamCode;
+  }
+  if (!tradeState.opponentSlots.some(Boolean)) {
+    tradeState.lockedOpponentTeamCode = null;
+  }
+  tradeState.gmMessage = "Package updated. Send the offer when you're ready.";
+  tradeState.officeMessage = getUserOfficeSuggestion(getTradeAssessment());
+  renderTradeModal();
+}
+
+function setTradeOpponentTeam(teamCode) {
+  const tradeState = getTradeState();
+  tradeState.selectedOpponentTeamCode = teamCode || null;
+  tradeState.lockedOpponentTeamCode = teamCode || null;
+  tradeState.opponentSlots = [null, null, null];
+  tradeState.negotiationState = "idle";
+  tradeState.gmMessage = teamCode
+    ? `Opening talks with ${findTeam(teamCode)?.name || teamCode}.`
+    : "Select a team, build the package, and send the offer.";
+  tradeState.officeMessage = teamCode
+    ? "Build the package and decide if it's worth sending."
+    : "Select a team and see how the package looks.";
+  state.tradeModal.activeSlot = null;
+  renderTradeModal();
+}
+
+function formatTradeCapDelta(delta) {
+  const rounded = roundToOneDecimal(Math.abs(delta));
+  if (delta > 0) {
+    return `(+ ${rounded.toFixed(rounded % 1 === 0 ? 0 : 1)})`;
+  }
+  if (delta < 0) {
+    return `(- ${rounded.toFixed(rounded % 1 === 0 ? 0 : 1)})`;
+  }
+  return "(0)";
+}
+
+function getUserOfficeSuggestion(assessment) {
+  if (!assessment?.opponentTeam) {
+    return "Pick a team and see how the package looks.";
+  }
+  if (!assessment.complete) {
+    return "Build out both sides before sending the offer.";
+  }
+  if (!assessment.minimumRosterPass) {
+    return "We need to keep enough bodies on the roster.";
+  }
+  if (assessment.valueDirection === "opponent_overpay") {
+    return "Are we really getting back enough?";
+  }
+  if (!assessment.userSalaryPass || !assessment.opponentSalaryPass) {
+    return "Cap-wise, this needs a little more work.";
+  }
+  return "Looks good!";
+}
+
+function getUserOfficeStatus(assessment) {
+  if (!assessment?.opponentTeam || !assessment.complete) {
+    return "is-neutral";
+  }
+  if (!assessment.minimumRosterPass || !assessment.userSalaryPass || !assessment.opponentSalaryPass || assessment.valueDirection === "opponent_overpay") {
+    return "is-fail";
+  }
+  return "is-pass";
+}
+
+function syncTeamAfterTrade(teamCode) {
+  const team = getWorkingOffseasonTeam(teamCode);
+  if (!team) {
+    return;
+  }
+  team.players.forEach((playerData, index) => {
+    playerData.teamCode = teamCode;
+    playerData.offseasonId = playerData.offseasonId || getOffseasonPlayerId(playerData, teamCode, index);
+    ensurePlayerRuntimeState(playerData);
+  });
+  team.teamRatings = calculateTeamRatings(team.players);
+  team.attackProfile = buildAttackProfile(team.players);
+  applyAutoStartingLineup(teamCode, team);
+}
+
+function executeTrade() {
+  const assessment = getTradeAssessment();
+  const tradeState = getTradeState();
+  tradeState.negotiationState = "rejected";
+  tradeState.officeMessage = getUserOfficeSuggestion(assessment);
+  if (!assessment?.complete || !assessment.opponentTeam) {
+    tradeState.gmMessage = "We need a full offer on both sides before we can review it.";
+    renderTradeModal();
+    return;
+  }
+  if (!assessment.minimumRosterPass) {
+    tradeState.gmMessage = "We need atleast 14 players!";
+    renderTradeModal();
+    return;
+  }
+  if (assessment.valueStatus === "Rejected") {
+    tradeState.gmMessage = assessment.valueDirection === "opponent_underpaid"
+      ? "We aren't getting enough back!"
+      : "That's too much for us to give up!";
+    renderTradeModal();
+    return;
+  }
+  if (!assessment.userSalaryPass || !assessment.opponentSalaryPass) {
+    tradeState.gmMessage = "The contracts don't match up!";
+    renderTradeModal();
+    return;
+  }
+  if (!assessment.rosterPass) {
+    tradeState.gmMessage = "That would leave one team over the roster limit.";
+    renderTradeModal();
+    return;
+  }
+  if (!assessment.feasible) {
+    tradeState.gmMessage = "This deal doesn't work for us.";
+    renderTradeModal();
+    return;
+  }
+  const userTeam = getWorkingOffseasonTeam(state.franchiseTeam);
+  const opponentTeam = assessment.opponentTeam;
+  const userSendIds = new Set(assessment.userPlayers.map((playerData) => playerData.offseasonId));
+  const opponentSendIds = new Set(assessment.opponentPlayers.map((playerData) => playerData.offseasonId));
+  const incomingToUser = assessment.opponentPlayers.map((playerData) => clonePlayer(playerData));
+  const incomingToOpponent = assessment.userPlayers.map((playerData) => clonePlayer(playerData));
+
+  userTeam.players = userTeam.players
+    .filter((playerData) => !userSendIds.has(playerData.offseasonId))
+    .concat(incomingToUser.map((playerData, index) => ({
+      ...playerData,
+      teamCode: userTeam.code,
+      offseasonId: playerData.offseasonId || getOffseasonPlayerId(playerData, userTeam.code, userTeam.players.length + index)
+    })));
+
+  opponentTeam.players = opponentTeam.players
+    .filter((playerData) => !opponentSendIds.has(playerData.offseasonId))
+    .concat(incomingToOpponent.map((playerData, index) => ({
+      ...playerData,
+      teamCode: opponentTeam.code,
+      offseasonId: playerData.offseasonId || getOffseasonPlayerId(playerData, opponentTeam.code, opponentTeam.players.length + index)
+    })));
+
+  state.offseason.budgets[userTeam.code] = Math.max(0, (state.offseason.budgets[userTeam.code] || 0) + assessment.userOutgoingSalary - assessment.opponentOutgoingSalary);
+  state.offseason.budgets[opponentTeam.code] = Math.max(0, (state.offseason.budgets[opponentTeam.code] || 0) + assessment.opponentOutgoingSalary - assessment.userOutgoingSalary);
+  state.offseason.tradeHistory = state.offseason.tradeHistory || [];
+  state.offseason.tradeHistory.unshift({
+    fromTeamCode: userTeam.code,
+    toTeamCode: opponentTeam.code,
+    summary: `${assessment.userPlayers.map((playerData) => playerData.name).join(", ")} for ${assessment.opponentPlayers.map((playerData) => playerData.name).join(", ")}`
+  });
+  syncTeamAfterTrade(userTeam.code);
+  syncTeamAfterTrade(opponentTeam.code);
+  launchChampionshipConfetti();
+  state.offseason.tradeState = createEmptyTradeState();
+  state.offseason.tradeState.selectedOpponentTeamCode = opponentTeam.code;
+  state.offseason.tradeState.lockedOpponentTeamCode = opponentTeam.code;
+  state.offseason.tradeState.gmMessage = "Pleasure doing business with you!";
+  state.offseason.tradeState.officeMessage = "Trade completed!";
+  state.offseason.tradeState.negotiationState = "accepted";
+  state.selectedLineupSwap = null;
+  state.draggedLineupIndex = null;
+  state.lineupCardFlips = {};
+  renderFeaturedMatchup();
+  renderTeamCards();
+  renderRoster();
+  renderTradeModal();
+  renderFeaturedResultMessage(`Trade completed with ${opponentTeam.name}. Continue Sim to begin Season ${state.seasonYear + 1}.`);
+}
+
+function renderTradeSlotSelector(side, index) {
+  const tradeState = getTradeState();
+  const currentValue = side === "user" ? tradeState.userSlots[index] : tradeState.opponentSlots[index];
+  let options = [];
+  if (side === "user") {
+    const selectedIds = new Set(tradeState.userSlots.filter(Boolean));
+    if (currentValue) {
+      selectedIds.delete(currentValue);
+    }
+    options = (getWorkingOffseasonTeam(state.franchiseTeam)?.players || [])
+      .filter((playerData) => !selectedIds.has(playerData.offseasonId))
+      .map((playerData) => `<option value="${escapeHtml(playerData.offseasonId)}" ${currentValue === playerData.offseasonId ? "selected" : ""}>${escapeHtml(playerData.name)} | OVR ${playerData.ratings?.overall || "--"}</option>`);
+  } else {
+    const opponentTeamCode = getLockedTradeOpponentTeamCode();
+    if (!opponentTeamCode) {
+      return `
+        <article class="player-card trade-slot trade-slot-empty trade-slot-select-card">
+          <div class="trade-slot-select-wrap">
+            <select data-trade-slot-select="${side}:${index}" disabled>
+              <option value="">Choose team first</option>
+            </select>
+          </div>
+        </article>
+      `;
+    }
+    const selectedIds = new Set(tradeState.opponentSlots.filter(Boolean));
+    if (currentValue) {
+      selectedIds.delete(currentValue);
+    }
+    options = (getWorkingOffseasonTeam(opponentTeamCode)?.players || [])
+      .filter((playerData) => !selectedIds.has(playerData.offseasonId))
+      .map((playerData) => `<option value="${escapeHtml(playerData.offseasonId)}" ${currentValue === playerData.offseasonId ? "selected" : ""}>${escapeHtml(playerData.name)} | OVR ${playerData.ratings?.overall || "--"}</option>`);
+  }
+
+  return `
+    <article class="player-card trade-slot trade-slot-empty trade-slot-select-card">
+      <div class="trade-slot-select-wrap">
+        <select data-trade-slot-select="${side}:${index}">
+          <option value="">Choose player</option>
+          ${options.join("")}
+        </select>
+      </div>
+    </article>
+  `;
+}
+
+function renderTradeAssetCard(playerData, side, index) {
+  if (!playerData) {
+    return renderTradeSlotSelector(side, index);
+  }
+  ensurePlayerRuntimeState(playerData);
+  return `
+    <article class="player-card trade-slot trade-slot-filled trade-player-card">
+      <button class="trade-slot-remove" type="button" data-trade-remove="${side}:${index}" aria-label="Remove ${escapeHtml(playerData.name)} from trade">&times;</button>
+      <div class="player-header">
+        <div>
+          <h3>${escapeHtml(playerData.name)}</h3>
+          <p class="player-meta">${escapeHtml(playerData.role)} &bull; ${escapeHtml(playerData.battingStyle || "--")}</p>
+        </div>
+        <span class="rating-badge">${playerData.ratings?.overall || "--"}</span>
+      </div>
+      <div class="player-ratings">
+        <span>Bat<strong>${playerData.ratings?.batting || "--"}</strong></span>
+        <span>Bowl<strong>${playerData.ratings?.bowling || "--"}</strong></span>
+        <span>AR<strong>${playerData.ratings?.allRound || "--"}</strong></span>
+        <span>Cltch<strong>${playerData.ratings?.clutch || "--"}</strong></span>
+        <span>Fld<strong>${playerData.ratings?.fielding || "--"}</strong></span>
+        <span>Lead<strong>${playerData.ratings?.leadership || "--"}</strong></span>
+        <span>Int<strong>${playerData.ratings?.intent || "--"}</strong></span>
+        <span>Comp<strong>${playerData.ratings?.composure || "--"}</strong></span>
+        <span>Econ<strong>${playerData.ratings?.econ || "--"}</strong></span>
+        <span>Wkts<strong>${playerData.ratings?.wkts || "--"}</strong></span>
+      </div>
+    </article>
+  `;
+}
+
+function renderTradeModal() {
+  const panel = document.getElementById("trade-panel");
+  if (!panel || !canOpenTradeWindow()) {
+    return;
+  }
+  const tradeState = getTradeState();
+  const assessment = getTradeAssessment();
+  const tradeStateMessage = tradeState.gmMessage || "Select a team and build the package.";
+  const officeMessage = tradeState.negotiationState === "accepted"
+    ? (tradeState.officeMessage || "Trade completed!")
+    : getUserOfficeSuggestion(assessment);
+  const officeStatusClass = tradeState.negotiationState === "accepted"
+    ? "is-pass"
+    : getUserOfficeStatus(assessment);
+  const opponentTeam = assessment?.opponentTeam || null;
+  const userPlayers = tradeState.userSlots.map((playerId) => findTradePlayerById(playerId));
+  const opponentPlayers = tradeState.opponentSlots.map((playerId) => findTradePlayerById(playerId));
+  const teamOptions = state.offseason.workingTeams
+    .filter((team) => team.code !== state.franchiseTeam)
+    .map((team) => `<option value="${escapeHtml(team.code)}" ${getLockedTradeOpponentTeamCode() === team.code ? "selected" : ""}>${escapeHtml(team.code)} | ${escapeHtml(team.name)}</option>`)
+    .join("");
+  const userCapDelta = (assessment?.userOutgoingSalary || 0) - (assessment?.opponentOutgoingSalary || 0);
+  const opponentCapDelta = (assessment?.opponentOutgoingSalary || 0) - (assessment?.userOutgoingSalary || 0);
+  const userCapClass = userCapDelta < 0 && Math.abs(userCapDelta) > (state.offseason.budgets[state.franchiseTeam] || 0) ? "is-negative" : "is-positive";
+  const opponentCapClass = opponentTeam && opponentCapDelta < 0 && Math.abs(opponentCapDelta) > (state.offseason.budgets[opponentTeam.code] || 0) ? "is-negative" : "is-positive";
+  const userRosterUsed = assessment?.opponentTeam ? assessment.userRosterAfter : (getWorkingOffseasonTeam(state.franchiseTeam)?.players.length || 0);
+  const opponentRosterUsed = assessment?.opponentTeam ? assessment.opponentRosterAfter : (opponentTeam ? opponentTeam.players.length : null);
+  const userRosterClass = userRosterUsed > MAX_ROSTER_SIZE ? "is-negative" : "is-neutral";
+  const opponentRosterClass = opponentRosterUsed !== null && opponentRosterUsed > MAX_ROSTER_SIZE ? "is-negative" : "is-neutral";
+
+  panel.innerHTML = `
+    <div class="offseason-summary-grid trade-summary-grid">
+      <article class="offseason-summary-card">
+        <span>Your Cap Space</span>
+        <strong>${formatCrores(state.offseason.budgets[state.franchiseTeam] || 0)} <em class="trade-cap-delta ${userCapClass}">${formatTradeCapDelta(userCapDelta)} cr</em></strong>
+      </article>
+      <article class="offseason-summary-card">
+        <span>Your Roster Space</span>
+        <strong class="${userRosterClass === "is-negative" ? "trade-summary-negative" : ""}">${userRosterUsed}/${MAX_ROSTER_SIZE}</strong>
+      </article>
+      <article class="offseason-summary-card">
+        <span>${escapeHtml(opponentTeam?.name || "Opponent")} Cap Space</span>
+        <strong>${opponentTeam ? `${formatCrores(state.offseason.budgets[opponentTeam.code] || 0)} <em class="trade-cap-delta ${opponentCapClass}">${formatTradeCapDelta(opponentCapDelta)} cr</em>` : "--"}</strong>
+      </article>
+      <article class="offseason-summary-card">
+        <span>${escapeHtml(opponentTeam?.code || "Opponent")} Roster Space</span>
+        <strong class="${opponentRosterClass === "is-negative" ? "trade-summary-negative" : ""}">${opponentRosterUsed === null ? "--" : `${opponentRosterUsed}/${MAX_ROSTER_SIZE}`}</strong>
+      </article>
+    </div>
+    <div class="trade-team-select-row">
+      <label>
+        <select data-trade-team-select>
+          <option value="">Choose team</option>
+          ${teamOptions}
+        </select>
+      </label>
+    </div>
+    <div class="trade-machine">
+      <div class="trade-column">
+        <div class="trade-side">
+          ${[0, 1, 2].map((index) => renderTradeAssetCard(userPlayers[index] || null, "user", index)).join("")}
+        </div>
+      </div>
+      <div class="trade-divider" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false">
+          <path d="M7 7h10l-3.5-3.5M17 17H7l3.5 3.5M17 7l-3.5-3.5M7 17l3.5 3.5" />
+        </svg>
+      </div>
+      <div class="trade-column">
+        <div class="trade-side">
+          ${[0, 1, 2].map((index) => renderTradeAssetCard(opponentPlayers[index] || null, "opponent", index)).join("")}
+        </div>
+      </div>
+    </div>
+    <div class="trade-status-panel trade-status-panel-dual">
+      <div class="trade-status-row ${officeStatusClass}">
+        <strong>Your Office</strong>
+        <span>${officeMessage}</span>
+      </div>
+      <div class="trade-status-row ${tradeState.negotiationState === "accepted" ? "is-pass" : tradeState.negotiationState === "rejected" ? "is-fail" : "is-neutral"}">
+        <strong>${escapeHtml(opponentTeam?.code || "GM")}</strong>
+        <span>${tradeStateMessage}</span>
+      </div>
+    </div>
+    <div class="offseason-footer">
+      <div class="offseason-actions">
+        <button class="ghost-btn" type="button" data-trade-reset>Reset Trade</button>
+        <button class="primary-btn" type="button" data-trade-submit ${assessment?.complete ? "" : "disabled"}>Trade</button>
+      </div>
+    </div>
+  `;
 }
 
 function renderRetentionModal() {
@@ -1381,7 +2015,7 @@ function renderAuctionModal() {
       <div class="offseason-footer">
         <p class="player-season-line">${userTeam?.players.length || 0} players on your roster | ${formatCrores(purse)} remaining</p>
         <div class="offseason-actions">
-          <button class="primary-btn" type="button" data-auction-finish>Start Next Season</button>
+          <button class="primary-btn" type="button" data-auction-finish>Open Trade Window</button>
         </div>
       </div>
     `;
@@ -1447,7 +2081,11 @@ function initOffseasonModals() {
   const auctionBackdrop = document.getElementById("auction-backdrop");
   const auctionClose = document.getElementById("auction-close");
   const auctionPanel = document.getElementById("auction-panel");
-  if (!retentionOverlay || !retentionBackdrop || !retentionClose || !retentionPanel || !auctionOverlay || !auctionBackdrop || !auctionClose || !auctionPanel) {
+  const tradeOverlay = document.getElementById("trade-overlay");
+  const tradeBackdrop = document.getElementById("trade-backdrop");
+  const tradeClose = document.getElementById("trade-close");
+  const tradePanel = document.getElementById("trade-panel");
+  if (!retentionOverlay || !retentionBackdrop || !retentionClose || !retentionPanel || !auctionOverlay || !auctionBackdrop || !auctionClose || !auctionPanel || !tradeOverlay || !tradeBackdrop || !tradeClose || !tradePanel) {
     return;
   }
 
@@ -1459,6 +2097,8 @@ function initOffseasonModals() {
   retentionBackdrop.addEventListener("click", closeRetentionModal);
   auctionClose.addEventListener("click", closeAuctionModal);
   auctionBackdrop.addEventListener("click", closeAuctionModal);
+  tradeClose.addEventListener("click", closeTradeModal);
+  tradeBackdrop.addEventListener("click", closeTradeModal);
 
   retentionPanel.addEventListener("click", (event) => {
     const toggle = event.target.closest("[data-retention-toggle]");
@@ -1506,8 +2146,12 @@ function initOffseasonModals() {
     }
     const currentPlayer = state.offseason.auctionPool[0];
     if (event.target.closest("[data-auction-finish]")) {
+      state.offseason.phase = "trade";
+      state.offseason.tradeHistory = state.offseason.tradeHistory || [];
+      state.offseason.tradeState = createEmptyTradeState();
       closeAuctionModal();
-      completeOffseasonAndStartNextSeason();
+      renderAll();
+      renderFeaturedResultMessage(`Auction complete. Use the new trade button on your player cards, then click Continue Sim to start Season ${state.seasonYear + 1}.`);
       return;
     }
     if (!currentPlayer) {
@@ -1541,6 +2185,65 @@ function initOffseasonModals() {
     if (!auctionOverlay.hidden) {
       closeAuctionModal();
     }
+    if (!tradeOverlay.hidden) {
+      closeTradeModal();
+    }
+  });
+
+  tradePanel.addEventListener("click", (event) => {
+    if (!canOpenTradeWindow()) {
+      return;
+    }
+    const openSlot = event.target.closest("[data-trade-open-slot]");
+    if (openSlot) {
+      const [side, index] = openSlot.dataset.tradeOpenSlot.split(":");
+      setTradeActiveSlot(side, Number(index));
+      return;
+    }
+    const remove = event.target.closest("[data-trade-remove]");
+    if (remove) {
+      const [side, index] = remove.dataset.tradeRemove.split(":");
+      removePlayerFromTrade(side, Number(index));
+      return;
+    }
+    const pick = event.target.closest("[data-trade-pick]");
+    if (pick) {
+      addPlayerToTrade(pick.dataset.tradePick);
+      return;
+    }
+    if (event.target.closest("[data-trade-cancel-pick]")) {
+      state.tradeModal.activeSlot = null;
+      renderTradeModal();
+      return;
+    }
+    if (event.target.closest("[data-trade-reset]")) {
+      state.offseason.tradeState = createEmptyTradeState();
+      state.tradeModal.activeSlot = null;
+      renderTradeModal();
+      return;
+    }
+    if (event.target.closest("[data-trade-submit]")) {
+      executeTrade();
+    }
+  });
+
+  tradePanel.addEventListener("change", (event) => {
+    const slotSelect = event.target.closest("[data-trade-slot-select]");
+    if (slotSelect) {
+      const [side, index] = slotSelect.dataset.tradeSlotSelect.split(":");
+      if (slotSelect.value) {
+        state.tradeModal.activeSlot = { side, index: Number(index) };
+        addPlayerToTrade(slotSelect.value);
+      } else {
+        removePlayerFromTrade(side, Number(index));
+      }
+      return;
+    }
+    const select = event.target.closest("[data-trade-team-select]");
+    if (!select) {
+      return;
+    }
+    setTradeOpponentTeam(select.value);
   });
 
   retentionOverlay.dataset.bound = "true";
@@ -1630,27 +2333,25 @@ function initSimulatorHowToPlayOverlay() {
       }
     ];
 
-    if (state.continueSimUnlocked) {
-      steps.push({
-        label: "HOW TO PLAY",
-        title: "Carry your franchise into the next year",
-        content: `
-          <div class="how-to-play-sections how-to-play-sections-double">
-            <article class="how-to-play-item">
-              <p class="how-to-play-item-label">Continue Sim</p>
-              <h3>Move into the offseason and next season</h3>
-              <p>After a full season ends, Continue Sim is planned to push your franchise into the next year instead of simply replaying the same campaign.</p>
-            </article>
-            <article class="how-to-play-item">
-              <p class="how-to-play-item-label">What Changes</p>
-              <h3>Mini-auction, releases, and ratings updates</h3>
-              <p>The next-year flow is intended to include a mini-auction, decisions on which players to let go, and rating changes that reshape the league from season to season.</p>
-            </article>
-          </div>
-        `,
-        target: "#lineup-builder-section"
-      });
-    }
+    steps.push({
+      label: "HOW TO PLAY",
+      title: "Carry your franchise into the next year",
+      content: `
+        <div class="how-to-play-sections how-to-play-sections-double">
+          <article class="how-to-play-item">
+            <p class="how-to-play-item-label">Continue Sim</p>
+            <h3>Move into the offseason</h3>
+            <p>After a full season ends, Continue Sim pushes your franchise into the offseason instead of simply replaying the same campaign.</p>
+          </article>
+          <article class="how-to-play-item">
+            <p class="how-to-play-item-label">What Changes</p>
+            <h3>Releases, mini-auction, trades</h3>
+            <p>Continue your franchise's story by releasing players, buying new players in the mini-auction, and trading for other players across the league.</p>
+          </article>
+        </div>
+      `,
+      target: null
+    });
 
     return steps;
   };
@@ -2103,6 +2804,7 @@ function renderRoster() {
 function renderRosterWithStatsCard() {
   const team = findTeam(state.franchiseTeam);
   const lineupTeam = buildLineupTeam(team);
+  const tradeWindowOpen = canOpenTradeWindow();
   document.getElementById("roster-title").textContent = `${team.name} XI`;
   document.getElementById("roster-team-style").textContent = team.identity;
   document.getElementById("roster-team-ovr").textContent = `XI OVR ${lineupTeam.teamRatings.overall}`;
@@ -2148,6 +2850,13 @@ function renderRosterWithStatsCard() {
               <span>WktTk<strong>${playerData.ratings.wkts}</strong></span>
             </div>
             <div class="lineup-card-toggle-row">
+              ${tradeWindowOpen ? `
+                <button class="lineup-trade-trigger" type="button" data-trade-trigger="${escapeHtml(playerData.offseasonId || getOffseasonPlayerId(playerData, team.code, playerData.lineupIndex))}" aria-label="Open trade for ${escapeHtml(playerData.name)}">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M7 7h9l-3-3M17 17H8l3 3M17 7l-4-3M7 17l4 3" />
+                  </svg>
+                </button>
+              ` : ""}
               <button class="player-ratings-toggle lineup-card-front-toggle ${activeBackView === "profile" && isFlipped ? "is-active" : ""}" type="button" data-lineup-profile-toggle data-lineup-player-key="${escapeHtml(playerKey)}" aria-label="Show player card details" aria-pressed="${activeBackView === "profile" && isFlipped ? "true" : "false"}">
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <circle cx="11" cy="11" r="5.5" />
@@ -2198,6 +2907,13 @@ function renderRosterWithStatsCard() {
               </div>
             `}
             <div class="lineup-card-toggle-row lineup-card-toggle-row-back">
+              ${tradeWindowOpen ? `
+                <button class="lineup-trade-trigger" type="button" data-trade-trigger="${escapeHtml(playerData.offseasonId || getOffseasonPlayerId(playerData, team.code, playerData.lineupIndex))}" aria-label="Open trade for ${escapeHtml(playerData.name)}">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M7 7h9l-3-3M17 17H8l3 3M17 7l-4-3M7 17l4 3" />
+                  </svg>
+                </button>
+              ` : ""}
               <button class="player-ratings-toggle lineup-card-back-toggle ${activeBackView === "profile" ? "is-active" : ""}" type="button" data-lineup-profile-toggle data-lineup-player-key="${escapeHtml(playerKey)}" aria-label="Show player card details" aria-pressed="${activeBackView === "profile" ? "true" : "false"}">
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <circle cx="11" cy="11" r="5.5" />
@@ -2220,6 +2936,13 @@ function renderRosterWithStatsCard() {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
       toggleImpactSub(team.code, Number(button.dataset.lineupIndex));
+    });
+  });
+
+  document.querySelectorAll("[data-trade-trigger]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openTradeModal(button.dataset.tradeTrigger);
     });
   });
 
@@ -2265,6 +2988,7 @@ function renderRosterWithStatsCard() {
     card.addEventListener("click", (event) => {
       if (
         event.target.closest("[data-impact-sub]") ||
+        event.target.closest("[data-trade-trigger]") ||
         event.target.closest("[data-lineup-stats-toggle]") ||
         event.target.closest("[data-lineup-profile-toggle]")
       ) {
@@ -3131,6 +3855,18 @@ function continueSimulation() {
     openRetentionModal();
     return;
   }
+  if (state.offseason.phase === "auction" && !state.offseason.auctionPool.length) {
+    state.offseason.phase = "trade";
+    state.offseason.tradeHistory = state.offseason.tradeHistory || [];
+    state.offseason.tradeState = createEmptyTradeState();
+    renderAll();
+    renderFeaturedResultMessage(`Auction complete. Use the trade button on your player cards, then click Continue Sim to begin Season ${state.seasonYear + 1}.`);
+    return;
+  }
+  if (state.offseason.phase === "trade") {
+    completeOffseasonAndStartNextSeason();
+    return;
+  }
   openAuctionModal();
 }
 
@@ -3138,6 +3874,15 @@ function startFreshSimulation(message) {
   resetPersistentAwardCounts();
   state.season = resetSeason();
   state.offseason = null;
+  state.tradeModal.open = false;
+  state.tradeModal.activeSlot = null;
+  ["retention-overlay", "auction-overlay", "trade-overlay"].forEach((id) => {
+    const overlay = document.getElementById(id);
+    if (overlay) {
+      overlay.hidden = true;
+    }
+  });
+  document.body.classList.remove("how-to-play-open");
   state.matchLog = [];
   state.tickerLabel = "";
   state.tickerItems = [];
@@ -3706,6 +4451,8 @@ function buildOffseasonState() {
     unsoldPool: [],
     auctionIndex: 0,
     auctionHistory: [],
+    tradeHistory: [],
+    tradeState: createEmptyTradeState(),
     userTeamCode: state.franchiseTeam,
     userTargetRosterSize: Math.min(MAX_ROSTER_SIZE, Math.max(18, userTeam ? userTeam.players.length : 18))
   };
@@ -4047,6 +4794,15 @@ function refreshAllTeamDerivedState() {
 
 function completeOffseasonAndStartNextSeason() {
   fillShortRostersFromUnsoldPool();
+  state.tradeModal.open = false;
+  state.tradeModal.activeSlot = null;
+  ["retention-overlay", "auction-overlay", "trade-overlay"].forEach((id) => {
+    const overlay = document.getElementById(id);
+    if (overlay) {
+      overlay.hidden = true;
+    }
+  });
+  document.body.classList.remove("how-to-play-open");
   state.teamLineups = {};
   state.impactSubs = {};
   state.bowlingPlans = {};

@@ -265,6 +265,15 @@ body::before {
   overscroll-behavior: contain;
 }
 
+.trade-modal {
+  width: calc(100vw - 8px);
+  max-width: calc(100vw - 8px);
+  height: auto;
+  max-height: calc(100vh - 8px);
+  padding: 12px 16px 8px;
+  overflow: auto;
+}
+
 .offseason-summary-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -392,6 +401,291 @@ body::before {
 
 .offseason-footer .offseason-actions .ghost-btn {
   flex: unset;
+}
+
+.trade-summary-grid {
+  margin-bottom: 10px;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.trade-summary-grid .offseason-summary-card {
+  padding: 10px 12px;
+  border-radius: 14px;
+}
+
+.trade-summary-grid .offseason-summary-card span {
+  font-size: 0.64rem;
+}
+
+.trade-summary-grid .offseason-summary-card strong {
+  font-size: 0.96rem;
+}
+
+.trade-cap-delta {
+  font-style: normal;
+  font-size: 0.95rem;
+  margin-left: 8px;
+}
+
+.trade-cap-delta.is-positive {
+  color: var(--positive);
+}
+
+.trade-cap-delta.is-negative {
+  color: var(--danger);
+}
+
+.trade-team-select-row {
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.trade-team-select-row label {
+  display: grid;
+  gap: 8px;
+  font-size: 0.88rem;
+  text-transform: uppercase;
+  color: var(--muted);
+  width: calc(50% - 21px);
+  min-width: 0;
+}
+
+.trade-machine {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.trade-summary-negative {
+  color: var(--danger);
+}
+
+.trade-column {
+  display: grid;
+  min-width: 0;
+}
+
+.trade-side {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.trade-divider {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  min-height: 180px;
+  align-self: stretch;
+  border-radius: 18px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.trade-divider svg {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.9;
+}
+
+.trade-slot {
+  position: relative;
+  min-height: 320px;
+  height: 320px;
+  border-radius: 22px;
+  border: 1px solid rgba(92, 225, 230, 0.72);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+  box-shadow: 0 0 0 1px rgba(92, 225, 230, 0.22);
+  min-width: 0;
+}
+
+.trade-player-card {
+  border-color: rgba(92, 225, 230, 0.95);
+  box-shadow: 0 0 0 1px rgba(92, 225, 230, 0.45);
+}
+
+.trade-slot-filled {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px;
+}
+
+.trade-player-card {
+  overflow: hidden;
+}
+
+.trade-player-card .player-meta {
+  margin-bottom: 10px;
+}
+
+.trade-player-card .player-ratings {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  padding: 0;
+}
+
+.trade-player-card .player-ratings span {
+  padding: 7px 4px;
+  font-size: 0.58rem;
+  letter-spacing: 0;
+  line-height: 1.05;
+}
+
+.trade-player-card .player-ratings strong {
+  font-size: 0.84rem;
+}
+
+.trade-slot-empty {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+  border-color: rgba(92, 225, 230, 1);
+  box-shadow: 0 0 0 1px rgba(92, 225, 230, 0.5);
+  cursor: pointer;
+}
+
+.trade-slot-select-card {
+  padding: 14px;
+}
+
+.trade-slot-select-wrap {
+  width: 100%;
+  display: grid;
+  align-content: center;
+  height: 100%;
+}
+
+.trade-slot-select-wrap select {
+  width: 100%;
+  min-width: 0;
+}
+
+.trade-slot-remove {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1;
+  box-shadow: none;
+  font-weight: 400;
+  text-transform: lowercase;
+}
+
+.trade-status-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.trade-status-panel-dual {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.trade-status-row {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  min-height: 90px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.trade-status-row strong {
+  font-family: "Rajdhani", sans-serif;
+  letter-spacing: 0.04em;
+}
+
+.trade-status-row span {
+  color: var(--muted);
+  text-align: left;
+  line-height: 1.5;
+}
+
+.trade-status-row.is-pass {
+  border-color: rgba(129, 255, 177, 0.62);
+  box-shadow: 0 0 0 1px rgba(129, 255, 177, 0.22);
+}
+
+.trade-status-row.is-fail {
+  border-color: rgba(255, 142, 142, 0.62);
+  box-shadow: 0 0 0 1px rgba(255, 142, 142, 0.18);
+}
+
+.trade-status-row.is-neutral {
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+#trade-panel {
+  display: grid;
+  gap: 4px;
+  height: auto;
+  align-content: start;
+  grid-template-rows: auto auto auto auto auto;
+  min-height: 0;
+}
+
+#trade-panel .offseason-footer {
+  margin-top: 6px;
+  padding-top: 0;
+  padding-bottom: 0;
+  min-height: 0;
+  justify-content: flex-end;
+  gap: 0;
+}
+
+#trade-panel .offseason-actions {
+  margin-top: 0;
+}
+
+@media (max-width: 980px) {
+  .trade-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .trade-machine {
+    grid-template-columns: 1fr;
+  }
+
+  .trade-divider {
+    width: 100%;
+    min-height: 56px;
+  }
+
+  .trade-side {
+    grid-template-columns: 1fr;
+  }
+
+  .trade-status-panel-dual {
+    grid-template-columns: 1fr;
+  }
+
+  .trade-team-select-row label {
+    width: 100%;
+  }
 }
 
 .offseason-auction-card {
@@ -1623,6 +1917,40 @@ select option {
   margin-top: 0;
   width: auto;
   z-index: 3;
+}
+
+.lineup-trade-trigger {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0;
+  margin-right: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: none;
+  color: var(--accent-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lineup-trade-trigger:hover,
+.lineup-trade-trigger:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(92, 225, 230, 0.45);
+  background: rgba(92, 225, 230, 0.09);
+  outline: none;
+}
+
+.lineup-trade-trigger svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.9;
 }
 
 .lineup-card-toggle-row-back {
