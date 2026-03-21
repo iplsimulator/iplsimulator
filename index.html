@@ -24,15 +24,16 @@
       <a class="nav-link" href="custom.html">Custom XI</a>
       <a class="nav-link" href="make-player.html">Make A Player</a>
       <button id="how-to-play-trigger" class="nav-link nav-button" type="button">How to Play</button>
+      <button id="saves-trigger" class="nav-link nav-button nav-saves" type="button">Saves</button>
       <button id="contact-trigger" class="nav-link nav-button nav-contact" type="button">Contact</button>
     </nav>
     <header class="hero">
       <div class="hero-copy">
         <p class="eyebrow">IPL 2026 Franchise Simulator</p>
-        <h1>Season-by-season cricket simulation with a polished franchise dashboard.</h1>
+        <h1>Season-by-season cricket simulator with a refined franchise dashboard.</h1>
         <p class="hero-text">
-          Lock in your team, tune the playing XI, and simulate one game at a time or run the full season.
-          Every screen is built to feel like a season hub, with quick access to lineups, scorecards, standings, and awards races.
+          Choose your team, tinker with its batting and bowling lineups, simulate games.
+          Make decisions as your team's GM in the offseason all with quick access to scorecards, standings, and award races.
         </p>
         <div class="hero-actions" id="hero-actions-panel">
           <button id="simulate-next" class="primary-btn">Simulate Game</button>
@@ -102,6 +103,22 @@
         <article class="info-card">
           <h3>Feedback / bug? <a class="inline-award-link" href="mailto:iplsimulator@gmail.com">iplsimulator@gmail.com</a></h3>
         </article>
+      </section>
+    </div>
+
+    <div id="saves-overlay" class="info-overlay" hidden>
+      <div id="saves-backdrop" class="info-backdrop"></div>
+      <section id="saves-panel" class="info-panel saves-modal" role="dialog" aria-modal="true" aria-labelledby="saves-title">
+        <button id="saves-close" class="info-dismiss" type="button" aria-label="Close saves">&times;</button>
+        <p class="eyebrow">SAVE CENTER</p>
+        <h2 id="saves-title" class="info-title">Save / Load Franchise</h2>
+        <p id="save-status" class="save-status">Manual saves only.</p>
+        <div class="save-toolbar">
+          <button id="export-save" class="ghost-btn" type="button">Export Save</button>
+          <button id="import-save" class="ghost-btn" type="button">Import Save</button>
+          <input id="import-save-input" type="file" accept=".json,application/json" hidden />
+        </div>
+        <div id="save-slots" class="save-slots"></div>
       </section>
     </div>
 
