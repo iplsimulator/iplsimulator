@@ -1268,6 +1268,53 @@ function ensurePlayerRuntimeState(playerData) {
   return playerData;
 }
 
+function refreshPlayerArchetype(playerData) {
+  if (!playerData) {
+    return null;
+  }
+
+  playerData.roleProfile = inferRoleProfile(playerData);
+  playerData.role = playerData.roleProfile.label;
+  playerData.archetype = playerData.roleProfile.label;
+  playerData.profile = inferPlayerProfile(playerData);
+  return playerData;
+}
+
+function applyRatingFloorDevelopmentBonus(playerData, ratingKey, targetRating) {
+  if (!playerData?.ratings) {
+    return;
+  }
+
+  let safety = 0;
+  while ((playerData.ratings?.[ratingKey] || 0) < targetRating && safety < 20) {
+    safety += 1;
+    if (ratingKey === "batting") {
+      playerData.makePlayerTargets.intent = clamp((playerData.makePlayerTargets.intent ?? 60) + 1.25, 25, 99);
+      playerData.makePlayerTargets.composure = clamp((playerData.makePlayerTargets.composure ?? 60) + 1.05, 25, 99);
+    } else if (ratingKey === "bowling") {
+      playerData.makePlayerTargets.econ = clamp((playerData.makePlayerTargets.econ ?? 25) + 1.1, 25, 99);
+      playerData.makePlayerTargets.wkts = clamp((playerData.makePlayerTargets.wkts ?? 25) + 1.1, 25, 99);
+    } else {
+      return;
+    }
+    playerData.ratings = calculateRatings(playerData);
+  }
+}
+
+function applyLowOverallUsageBonuses(playerData, previousSnapshot, startingBatting, startingBowling) {
+  if (!playerData?.ratings || !previousSnapshot) {
+    return;
+  }
+
+  if (startingBatting < 55 && (previousSnapshot.seasonBallsFaced || 0) > 100) {
+    applyRatingFloorDevelopmentBonus(playerData, "batting", Math.min(99, startingBatting + 4));
+  }
+
+  if (startingBowling < 55 && (previousSnapshot.seasonOversBalls || 0) > 270) {
+    applyRatingFloorDevelopmentBonus(playerData, "bowling", Math.min(99, startingBowling + 4));
+  }
+}
+
 function getFairMarketSalary(playerData) {
   ensurePlayerRuntimeState(playerData);
   const overall = playerData.ratings?.overall || 50;
@@ -4285,6 +4332,51 @@ function pickLineupCandidates(remainingPlayers, count, scorer, selectedIds, pred
     .slice(0, count);
 }
 
+function ensureMinimumBowlingOptions(players, selectedPlayers, minimumBowlingOptions = 5) {
+  const maxBowlingOptions = Math.min(
+    minimumBowlingOptions,
+    selectedPlayers.length,
+    players.filter((playerData) => isEligibleBowler(playerData)).length
+  );
+  if (!maxBowlingOptions) {
+    return selectedPlayers;
+  }
+
+  const chosenIds = new Set(selectedPlayers.map((playerData) => playerData.customId || playerData.name));
+  const eligibleChosen = selectedPlayers.filter((playerData) => isEligibleBowler(playerData));
+  if (eligibleChosen.length >= maxBowlingOptions) {
+    return selectedPlayers;
+  }
+
+  const incomingBowlers = players
+    .filter((playerData) => !chosenIds.has(playerData.customId || playerData.name))
+    .filter((playerData) => isEligibleBowler(playerData))
+    .sort((a, b) => (
+      getLineupBowlerScore(b) - getLineupBowlerScore(a) ||
+      (b.ratings?.allRound || 38) - (a.ratings?.allRound || 38) ||
+      (b.ratings?.batting || 25) - (a.ratings?.batting || 25)
+    ));
+  const replaceablePlayers = [...selectedPlayers]
+    .filter((playerData) => !isEligibleBowler(playerData))
+    .sort((a, b) => (
+      getLineupMiddleOrderScore(a) - getLineupMiddleOrderScore(b) ||
+      (a.ratings?.batting || 25) - (b.ratings?.batting || 25)
+    ));
+
+  const adjustedPlayers = [...selectedPlayers];
+  while (adjustedPlayers.filter((playerData) => isEligibleBowler(playerData)).length < maxBowlingOptions && incomingBowlers.length && replaceablePlayers.length) {
+    const nextBowler = incomingBowlers.shift();
+    const replacement = replaceablePlayers.shift();
+    const replacementIndex = adjustedPlayers.findIndex((playerData) => (playerData.customId || playerData.name) === (replacement.customId || replacement.name));
+    if (!nextBowler || replacementIndex === -1) {
+      continue;
+    }
+    adjustedPlayers[replacementIndex] = nextBowler;
+  }
+
+  return adjustedPlayers;
+}
+
 function getAutoStartingLineupPlanForTeam(team) {
   if (!team) {
     return { lineupNames: [], battingGroupNames: [], bowlingGroupNames: [] };
@@ -4311,7 +4403,11 @@ function getAutoStartingLineupPlanForTeam(team) {
   addPlayers(pickLineupCandidates(players, 4, getLineupBowlerScore, selectedIds, (playerData) => (playerData.bowlingType || "none") !== "none" || (playerData.ratings?.bowling || 25) >= 42));
   addPlayers(pickLineupCandidates(players, 12, (playerData) => (playerData.ratings?.overall || 50), selectedIds));
 
-  const chosenTwelve = selectedPlayers.slice(0, Math.min(12, players.length));
+  const chosenTwelve = ensureMinimumBowlingOptions(
+    players,
+    selectedPlayers.slice(0, Math.min(12, players.length)),
+    5
+  );
   const openingPair = [...chosenTwelve].sort((a, b) => getLineupOpeningScore(b) - getLineupOpeningScore(a)).slice(0, 2);
   const openingIds = new Set(openingPair.map((playerData) => playerData.customId || playerData.name));
   const remainingChosen = chosenTwelve.filter((playerData) => !openingIds.has(playerData.customId || playerData.name));
@@ -5543,23 +5639,45 @@ function applyOffseasonProgressionToPlayer(playerData, previousSnapshot) {
   const nextAge = currentAge + 1;
   const currentBatting = playerData.ratings?.batting ?? 60;
   const currentBowling = playerData.ratings?.bowling ?? 25;
-  const rawPerformanceDelta = previousSnapshot
-    ? clamp((previousSnapshot.mvpScore || 0) / 16 + (previousSnapshot.seasonRuns || 0) / 180 - (previousSnapshot.seasonWickets || 0) / 14, -4, 6)
-    : 0;
-  const performanceDelta = nextAge > 34
-    ? 0
-    : nextAge > 32
-    ? clamp(rawPerformanceDelta, -1.5, 1.5)
-    : rawPerformanceDelta;
   const ageDelta = nextAge <= 24 ? 2 : nextAge <= 29 ? 1 : nextAge <= 33 ? 0 : -2;
   const volatility = randomInt(-2, 2);
-  const performanceWeight = nextAge < 30 ? 0.85 : 0.35;
+  const battingPerformanceDelta = previousSnapshot
+    ? clamp((previousSnapshot.seasonRuns || 0) / 180, -4, 6)
+    : 0;
+  const bowlingPerformanceDelta = previousSnapshot
+    ? clamp((previousSnapshot.seasonWickets || 0) / 14, -4, 6)
+    : 0;
+  const battingWeightedDelta = nextAge > 34
+    ? 0
+    : nextAge > 32
+    ? clamp(battingPerformanceDelta, -1.5, 1.5)
+    : battingPerformanceDelta;
+  const bowlingWeightedDelta = nextAge > 34
+    ? 0
+    : nextAge > 32
+    ? clamp(bowlingPerformanceDelta, -1.5, 1.5)
+    : bowlingPerformanceDelta;
+  const battingPerformanceWeight = nextAge < 30 ? 0.85 : 0.35;
+  const bowlingPerformanceWeight = nextAge < 30 ? 0.85 : 0.35;
   const ageWeight = nextAge < 30 ? 0.7 : 1;
-  const totalDelta = clamp(ageDelta * ageWeight + performanceDelta * performanceWeight + volatility * 0.35, -4, 4);
-  const battingDelta = totalDelta - getEliteRegressionPenalty(currentBatting);
-  const bowlingDelta = totalDelta - getEliteRegressionPenalty(currentBowling);
+  const battingTotalDelta = clamp(
+    ageDelta * ageWeight + battingWeightedDelta * battingPerformanceWeight + volatility * 0.35,
+    -4,
+    4
+  );
+  const bowlingTotalDelta = clamp(
+    ageDelta * ageWeight + bowlingWeightedDelta * bowlingPerformanceWeight + volatility * 0.35,
+    -4,
+    4
+  );
+  const battingDelta = battingTotalDelta - getEliteRegressionPenalty(currentBatting);
+  const bowlingDelta = bowlingTotalDelta - getEliteRegressionPenalty(currentBowling);
   playerData.age = nextAge;
-  playerData.fielding = clamp((playerData.fielding ?? playerData.makePlayerTargets.fielding ?? 78) + totalDelta * 0.4, 70, 99);
+  playerData.fielding = clamp(
+    (playerData.fielding ?? playerData.makePlayerTargets.fielding ?? 78) + ((battingTotalDelta + bowlingTotalDelta) / 2) * 0.4,
+    70,
+    99
+  );
   playerData.leadership = clamp((playerData.leadership ?? playerData.makePlayerTargets.leadership ?? 72) + (nextAge >= 30 ? 0.8 : 0.2), 70, 99);
   playerData.makePlayerTargets.intent = applyProgressionSoftCap(playerData.makePlayerTargets.intent, battingDelta, currentBatting);
   playerData.makePlayerTargets.composure = applyProgressionSoftCap(playerData.makePlayerTargets.composure, battingDelta * 0.8, currentBatting);
@@ -5568,6 +5686,8 @@ function applyOffseasonProgressionToPlayer(playerData, previousSnapshot) {
     playerData.makePlayerTargets.wkts = applyProgressionSoftCap(playerData.makePlayerTargets.wkts, bowlingDelta * 0.7, currentBowling);
   }
   playerData.ratings = calculateRatings(playerData);
+  applyLowOverallUsageBonuses(playerData, previousSnapshot, currentBatting, currentBowling);
+  refreshPlayerArchetype(playerData);
   ensurePlayerRuntimeState(playerData);
 }
 
