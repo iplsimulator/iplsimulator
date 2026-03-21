@@ -507,11 +507,19 @@ function buildAutoBowlingPlan(players) {
   return plan;
 }
 
-function getAutoBowlingRotation(players, maxBowlers = 6) {
+function getTopBowlingPlanPlayers(players, maxBowlers = 5) {
   return (players || [])
     .filter((playerData) => playerData && isEligibleBowler(playerData))
-    .sort((a, b) => b.ratings.bowling - a.ratings.bowling || b.ratings.econ - a.ratings.econ || b.ratings.wkts - a.ratings.wkts)
+    .sort((a, b) => (
+      (b.ratings?.bowling || 0) - (a.ratings?.bowling || 0) ||
+      (b.ratings?.econ || 0) - (a.ratings?.econ || 0) ||
+      (b.ratings?.wkts || 0) - (a.ratings?.wkts || 0)
+    ))
     .slice(0, Math.min(maxBowlers, players?.length || 0));
+}
+
+function getAutoBowlingRotation(players, maxBowlers = 5) {
+  return getTopBowlingPlanPlayers(players, maxBowlers);
 }
 
 function createBowlingRotationQuotas(rotation) {
@@ -3218,10 +3226,31 @@ function renderImpactSubWarning(teamCode) {
 function getEligibleBowlingPlanPlayers(teamCode) {
   const team = findTeam(teamCode);
   if (!team) return [];
-  return getLineupForTeam(teamCode)
+  const activeTwelve = getLineupForTeam(teamCode)
     .slice(0, 12)
     .map((name) => team.players.find((playerData) => playerData.name === name))
-    .filter((playerData) => playerData && isEligibleBowler(playerData));
+    .filter(Boolean)
+    .map((playerData) => clonePlayer(playerData))
+    .filter((playerData) => playerData?.ratings);
+  const impactIndices = getImpactSubIndices(teamCode)
+    .filter((index) => index >= 0 && index < activeTwelve.length);
+  const [firstImpactIndex, secondImpactIndex] = impactIndices;
+  const firstImpactPlayer = activeTwelve[firstImpactIndex] || null;
+  const secondImpactPlayer = activeTwelve[secondImpactIndex] || null;
+  const bowlingImpactPlayer = !firstImpactPlayer || !secondImpactPlayer
+    ? firstImpactPlayer || secondImpactPlayer
+    : firstImpactPlayer.ratings.bowling >= secondImpactPlayer.ratings.bowling
+      ? firstImpactPlayer
+      : secondImpactPlayer;
+  const bowlingPlanPlayers = buildImpactAdjustedLineup(activeTwelve, impactIndices, bowlingImpactPlayer);
+
+  return bowlingPlanPlayers
+    .filter((playerData) => playerData && isEligibleBowler(playerData))
+    .sort((a, b) => (
+      (b.ratings?.bowling || 0) - (a.ratings?.bowling || 0) ||
+      (b.ratings?.econ || 0) - (a.ratings?.econ || 0) ||
+      (b.ratings?.wkts || 0) - (a.ratings?.wkts || 0)
+    ));
 }
 
 function getBowlingPlan(teamCode) {
@@ -3336,8 +3365,31 @@ function renderBowlingPlanEditor(teamCode) {
   });
 
   container.querySelectorAll("[data-bowling-plan-chip]").forEach((chip) => {
+    const bowlerName = chip.dataset.bowlingPlanChip;
+    const flashColor = getBowlingPlanChipFlashColor(chip);
+
+    chip.addEventListener("mousedown", () => {
+      holdBowlingPlanAssignments(container, bowlerName, flashColor);
+      const releaseHeldAssignments = () => clearHeldBowlingPlanAssignments(container);
+      window.addEventListener("mouseup", releaseHeldAssignments, { once: true });
+    });
+    chip.addEventListener("mouseleave", () => {
+      clearHeldBowlingPlanAssignments(container);
+    });
     chip.addEventListener("click", () => {
-      flashBowlingPlanAssignments(container, chip.dataset.bowlingPlanChip, getBowlingPlanChipFlashColor(chip));
+      flashBowlingPlanAssignments(container, bowlerName, flashColor);
+    });
+    chip.addEventListener("touchstart", () => {
+      holdBowlingPlanAssignments(container, bowlerName, flashColor);
+      const releaseHeldAssignments = () => clearHeldBowlingPlanAssignments(container);
+      window.addEventListener("touchend", releaseHeldAssignments, { once: true });
+      window.addEventListener("touchcancel", releaseHeldAssignments, { once: true });
+    }, { passive: true });
+    chip.addEventListener("touchend", () => {
+      clearHeldBowlingPlanAssignments(container);
+    });
+    chip.addEventListener("touchcancel", () => {
+      clearHeldBowlingPlanAssignments(container);
     });
   });
 
@@ -3390,6 +3442,39 @@ function flashBowlingPlanAssignments(container, bowlerName, flashColor = "") {
       slot.classList.remove("is-flashing");
       slot.style.removeProperty("--bowling-plan-flash-color");
     }, 1200);
+  });
+}
+
+function holdBowlingPlanAssignments(container, bowlerName, flashColor = "") {
+  if (!container || !bowlerName) {
+    return;
+  }
+
+  clearHeldBowlingPlanAssignments(container);
+
+  const matchingSlots = [...container.querySelectorAll("[data-bowling-plan-slot]")].filter((slot) => {
+    const select = slot.querySelector("[data-bowling-plan-over]");
+    return select?.value === bowlerName;
+  });
+
+  matchingSlots.forEach((slot) => {
+    if (flashColor) {
+      slot.style.setProperty("--bowling-plan-flash-color", flashColor);
+    }
+    slot.classList.add("is-held");
+  });
+}
+
+function clearHeldBowlingPlanAssignments(container = document) {
+  if (!container) {
+    return;
+  }
+
+  container.querySelectorAll(".bowling-plan-slot.is-held").forEach((slot) => {
+    slot.classList.remove("is-held");
+    if (!slot.classList.contains("is-flashing")) {
+      slot.style.removeProperty("--bowling-plan-flash-color");
+    }
   });
 }
 
@@ -5200,6 +5285,20 @@ function updatePlayers(playerBook, result) {
   });
 }
 
+function getAverageOfTopSeasonValues(playerBook, key, limit = 20) {
+  const topValues = (playerBook || [])
+    .map((playerData) => Number(playerData?.[key]) || 0)
+    .filter((value) => value > 0)
+    .sort((a, b) => b - a)
+    .slice(0, limit);
+
+  if (!topValues.length) {
+    return 0;
+  }
+
+  return topValues.reduce((sum, value) => sum + value, 0) / topValues.length;
+}
+
 function getActiveImpactAppearanceNames(team) {
   if (!team?.activeTwelve?.length) {
     return [];
@@ -5668,9 +5767,7 @@ function ensureBowlingCardEntry(bowlingCard, bowlerName) {
 }
 
 function resolveBowlerForOver(bowlingTeam, overIndex, oversByBowler, pitch, battingOrder) {
-  const bowlersAvailable = (bowlingTeam.bowlingPlayers || bowlingTeam.players || [])
-    .filter((playerData) => isEligibleBowler(playerData))
-    .sort((a, b) => b.ratings.bowling - a.ratings.bowling);
+  const bowlersAvailable = getTopBowlingPlanPlayers(bowlingTeam.bowlingPlayers || bowlingTeam.players || []);
   if (!bowlersAvailable.length) {
     return null;
   }
@@ -6764,7 +6861,8 @@ function calculateSeasonAwards(playerBook) {
     return { bestBatter: null, bestBowler: null, mvp: null, impactPlayer: null };
   }
 
-  const impactEligiblePlayers = playerBook.filter((playerData) =>
+  const seasonAwardImpactBook = buildSeasonAwardImpactBook(playerBook);
+  const impactEligibleAwardBook = seasonAwardImpactBook.filter((playerData) =>
     playerData.matchesPlayed > 0 &&
     playerData.impactAppearances / playerData.matchesPlayed >= 0.75
   );
@@ -6772,11 +6870,45 @@ function calculateSeasonAwards(playerBook) {
   return {
     bestBatter: [...playerBook].sort((a, b) => b.seasonRuns - a.seasonRuns || b.seasonStrikeRate - a.seasonStrikeRate)[0],
     bestBowler: [...playerBook].sort((a, b) => b.seasonWickets - a.seasonWickets || a.seasonEconomy - b.seasonEconomy)[0],
-    mvp: [...playerBook].sort((a, b) => b.mvpScore - a.mvpScore || b.seasonRuns - a.seasonRuns)[0],
-    impactPlayer: impactEligiblePlayers.length
-      ? [...impactEligiblePlayers].sort((a, b) => b.mvpScore - a.mvpScore || b.impactAppearances - a.impactAppearances || b.seasonRuns - a.seasonRuns)[0]
+    mvp: [...seasonAwardImpactBook].sort((a, b) => b.mvpScore - a.mvpScore || b.seasonRuns - a.seasonRuns)[0],
+    impactPlayer: impactEligibleAwardBook.length
+      ? [...impactEligibleAwardBook].sort((a, b) => b.mvpScore - a.mvpScore || b.impactAppearances - a.impactAppearances || b.seasonRuns - a.seasonRuns)[0]
       : null
   };
+}
+
+function buildSeasonAwardImpactBook(playerBook) {
+  const top20RunAverage = getAverageOfTopSeasonValues(playerBook, "seasonRuns", 20);
+  const top20WicketAverage = getAverageOfTopSeasonValues(playerBook, "seasonWickets", 20);
+
+  return (playerBook || []).map((playerData) => ({
+    ...playerData,
+    mvpScore: getEndOfSeasonMvpScore(playerData, top20RunAverage, top20WicketAverage)
+  }));
+}
+
+function getEndOfSeasonMvpScore(playerData, top20RunAverage, top20WicketAverage) {
+  const baseImpact = Number(playerData?.mvpScore) || 0;
+  const seasonRuns = Number(playerData?.seasonRuns) || 0;
+  const seasonWickets = Number(playerData?.seasonWickets) || 0;
+  const exceedsRunAverage = top20RunAverage > 0 && seasonRuns > top20RunAverage;
+  const exceedsWicketAverage = top20WicketAverage > 0 && seasonWickets > top20WicketAverage;
+
+  if (!exceedsRunAverage && !exceedsWicketAverage) {
+    return baseImpact;
+  }
+
+  const battingContribution = exceedsRunAverage && top20RunAverage > 0
+    ? baseImpact * (seasonRuns / top20RunAverage)
+    : baseImpact;
+  const bowlingContribution = exceedsWicketAverage && top20WicketAverage > 0
+    ? baseImpact * (seasonWickets / top20WicketAverage)
+    : baseImpact;
+
+  return Math.round(
+    (exceedsRunAverage ? battingContribution : 0) +
+    (exceedsWicketAverage ? bowlingContribution : 0)
+  );
 }
 
 function renderTickerResultMarkup(result) {

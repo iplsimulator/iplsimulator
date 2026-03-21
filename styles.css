@@ -1668,6 +1668,11 @@ select option {
   animation: bowling-plan-slot-flash 1.15s ease-out;
 }
 
+.bowling-plan-slot.is-held {
+  border-color: var(--bowling-plan-flash-color, rgba(255, 179, 71, 0.95));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--bowling-plan-flash-color, rgba(255, 179, 71, 0.95)) 82%, transparent), 0 0 22px color-mix(in srgb, var(--bowling-plan-flash-color, rgba(255, 179, 71, 0.95)) 30%, transparent);
+}
+
 @keyframes bowling-plan-slot-flash {
   0% {
     border-color: var(--bowling-plan-flash-color, rgba(255, 179, 71, 0.95));
