@@ -2623,10 +2623,16 @@ function renderTradeModal() {
     .filter((team) => team.code !== state.franchiseTeam)
     .map((team) => `<option value="${escapeHtml(team.code)}" ${getLockedTradeOpponentTeamCode() === team.code ? "selected" : ""}>${escapeHtml(team.code)} | ${escapeHtml(team.name)}</option>`)
     .join("");
+  const userCapSpace = state.offseason.budgets[state.franchiseTeam] || 0;
+  const opponentCapSpace = opponentTeam ? (state.offseason.budgets[opponentTeam.code] || 0) : 0;
   const userCapDelta = (assessment?.userOutgoingSalary || 0) - (assessment?.opponentOutgoingSalary || 0);
   const opponentCapDelta = (assessment?.opponentOutgoingSalary || 0) - (assessment?.userOutgoingSalary || 0);
+  const userProjectedCapSpace = userCapSpace + userCapDelta;
+  const opponentProjectedCapSpace = opponentCapSpace + opponentCapDelta;
   const userCapClass = userCapDelta < 0 && Math.abs(userCapDelta) > (state.offseason.budgets[state.franchiseTeam] || 0) ? "is-negative" : "is-positive";
   const opponentCapClass = opponentTeam && opponentCapDelta < 0 && Math.abs(opponentCapDelta) > (state.offseason.budgets[opponentTeam.code] || 0) ? "is-negative" : "is-positive";
+  const userProjectedCapClass = userProjectedCapSpace < 0 ? "is-negative" : userProjectedCapSpace > 0 ? "is-positive" : "";
+  const opponentProjectedCapClass = opponentProjectedCapSpace < 0 ? "is-negative" : opponentProjectedCapSpace > 0 ? "is-positive" : "";
   const userRosterUsed = assessment?.opponentTeam ? assessment.userRosterAfter : (getWorkingOffseasonTeam(state.franchiseTeam)?.players.length || 0);
   const opponentRosterUsed = assessment?.opponentTeam ? assessment.opponentRosterAfter : (opponentTeam ? opponentTeam.players.length : null);
   const userRosterClass = userRosterUsed > MAX_ROSTER_SIZE ? "is-negative" : "is-neutral";
@@ -2636,7 +2642,7 @@ function renderTradeModal() {
     <div class="offseason-summary-grid trade-summary-grid">
       <article class="offseason-summary-card">
         <span>Your Cap Space</span>
-        <strong>${formatCrores(state.offseason.budgets[state.franchiseTeam] || 0)} <em class="trade-cap-delta ${userCapClass}">${formatTradeCapDelta(userCapDelta)} cr</em></strong>
+        <strong>${formatCrores(userCapSpace)} <em class="trade-cap-delta ${userCapClass}">${formatTradeCapDelta(userCapDelta)} cr</em> <em class="trade-cap-projected ${userProjectedCapClass}">| ${formatCrores(userProjectedCapSpace)}</em></strong>
       </article>
       <article class="offseason-summary-card">
         <span>Your Roster Space</span>
@@ -2644,7 +2650,7 @@ function renderTradeModal() {
       </article>
       <article class="offseason-summary-card">
         <span>${escapeHtml(opponentTeam?.name || "Opponent")} Cap Space</span>
-        <strong>${opponentTeam ? `${formatCrores(state.offseason.budgets[opponentTeam.code] || 0)} <em class="trade-cap-delta ${opponentCapClass}">${formatTradeCapDelta(opponentCapDelta)} cr</em>` : "--"}</strong>
+        <strong>${opponentTeam ? `${formatCrores(opponentCapSpace)} <em class="trade-cap-delta ${opponentCapClass}">${formatTradeCapDelta(opponentCapDelta)} cr</em> <em class="trade-cap-projected ${opponentProjectedCapClass}">| ${formatCrores(opponentProjectedCapSpace)}</em>` : "--"}</strong>
       </article>
       <article class="offseason-summary-card">
         <span>${escapeHtml(opponentTeam?.code || "Opponent")} Roster Space</span>
@@ -2819,7 +2825,7 @@ function renderAuctionModal() {
       ${rosterFull ? `<p class="player-season-line">Squad full at ${MAX_ROSTER_SIZE} players. Release someone in retentions to buy again next year.</p>` : ""}
       <div class="offseason-actions offseason-actions-wide">
         <button class="primary-btn" type="button" data-auction-buy ${!canAffordCurrentPlayer || rosterFull ? "disabled" : ""} title="${rosterFull ? `Squad full (${MAX_ROSTER_SIZE}/${MAX_ROSTER_SIZE})` : !canAffordCurrentPlayer ? "Not enough purse" : "Buy this player"}">${rosterFull ? `Squad Full (${MAX_ROSTER_SIZE}/${MAX_ROSTER_SIZE})` : "Buy Player"}</button>
-        <button class="ghost-btn" type="button" data-auction-pass>Pass to AI</button>
+        <button class="ghost-btn" type="button" data-auction-pass>Pass</button>
         <button class="ghost-btn" type="button" data-auction-auto>Auto Complete Auction</button>
       </div>
     </article>
@@ -5842,17 +5848,21 @@ function renderStandings() {
 }
 
 function renderAwards() {
+  const awards = calculateSeasonAwards(state.season?.playerStats || []);
+  if (state.season) {
+    state.season.awards = awards;
+  }
   const races = [
     {
       label: "Best Impact Sub",
-      player: state.season.awards.impactPlayer,
-      stat: state.season.awards.impactPlayer
-        ? `${state.season.awards.impactPlayer.awardMvpScore || 0} impact`
+      player: awards.impactPlayer,
+      stat: awards.impactPlayer
+        ? `${awards.impactPlayer.awardMvpScore || 0} impact`
         : "Need 75% impact usage"
     },
-    { label: "Purple Cap Holder", player: state.season.awards.bestBowler, stat: `${Math.round(state.season.awards.bestBowler?.seasonWickets || 0)} wickets` },
-    { label: "Orange Cap Holder", player: state.season.awards.bestBatter, stat: `${state.season.awards.bestBatter?.seasonRuns || 0} runs` },
-    { label: "MVP", player: state.season.awards.mvp, stat: `${state.season.awards.mvp?.awardMvpScore || 0} impact score` }
+    { label: "Purple Cap Holder", player: awards.bestBowler, stat: `${Math.round(awards.bestBowler?.seasonWickets || 0)} wickets` },
+    { label: "Orange Cap Holder", player: awards.bestBatter, stat: `${awards.bestBatter?.seasonRuns || 0} runs` },
+    { label: "MVP", player: awards.mvp, stat: `${awards.mvp?.awardMvpScore || 0} impact score` }
   ];
 
   document.getElementById("award-races").innerHTML = races.map((race) => `

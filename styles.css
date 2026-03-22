@@ -444,6 +444,20 @@ body::before {
   color: var(--danger);
 }
 
+.trade-cap-projected {
+  font-style: normal !important;
+  font-size: 0.95rem;
+  margin-left: 6px;
+}
+
+.trade-cap-projected.is-positive {
+  color: var(--positive);
+}
+
+.trade-cap-projected.is-negative {
+  color: var(--danger);
+}
+
 .trade-team-select-row {
   margin-bottom: 8px;
   display: flex;
