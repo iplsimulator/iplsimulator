@@ -447,7 +447,6 @@ body::before {
 .trade-cap-projected {
   font-style: normal !important;
   font-size: 0.95rem;
-  margin-left: 6px;
 }
 
 .trade-cap-projected.is-positive {
@@ -456,6 +455,11 @@ body::before {
 
 .trade-cap-projected.is-negative {
   color: var(--danger);
+}
+
+.trade-cap-separator {
+  color: var(--text);
+  margin: 0 6px;
 }
 
 .trade-team-select-row {
@@ -1657,6 +1661,43 @@ select option {
 
 .player-grid {
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.season-stat-card {
+  min-height: 0;
+}
+
+.season-test-lineup-card .lineup-card-toggle-row {
+  justify-content: flex-end;
+}
+
+.season-test-lineup-card .lineup-card-stats-summary {
+  margin: 0 0 8px;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+}
+
+.lineup-card-stats-summary-season {
+  margin: 0 0 8px;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+  color: inherit;
+  font-size: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.season-card-year-select {
+  width: auto;
+  max-width: 100%;
+  min-height: 0;
+  padding: 0 18px 0 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
 }
 
 #lineup-impact-warning {

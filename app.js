@@ -70,6 +70,7 @@ const state = {
   continueSimUnlocked: false,
   seasonYear: 2026,
   recordedAwardSeasonYear: null,
+  seasonCardYearSelections: {},
   offseason: null,
   tradeModal: {
     open: false,
@@ -1491,6 +1492,8 @@ function initControls() {
   };
   const ratingsTeamFilter = document.getElementById("ratings-team-filter");
   const ratingsSort = document.getElementById("ratings-sort");
+  const seasonCardsTeamFilter = document.getElementById("season-cards-team-filter");
+  const seasonCardsSort = document.getElementById("season-cards-sort");
   const seasonStatSelect = document.getElementById("season-stat-select");
   const seasonStatScope = document.getElementById("season-stat-scope");
   const customLeagueOpponent = document.getElementById("league-opponent-select");
@@ -1528,6 +1531,23 @@ function initControls() {
     ratingsSort.addEventListener("change", (event) => {
       state.ratingsSort = event.target.value;
       renderRatingsPage();
+    });
+  }
+
+  if (seasonCardsTeamFilter) {
+    seasonCardsTeamFilter.add(new Option("All Teams", "ALL"));
+    teams.forEach((team) => {
+      seasonCardsTeamFilter.add(new Option(`${team.code} • ${team.name}`, team.code));
+    });
+    seasonCardsTeamFilter.value = "ALL";
+    seasonCardsTeamFilter.addEventListener("change", () => {
+      renderSeasonCardsTestPage();
+    });
+  }
+
+  if (seasonCardsSort) {
+    seasonCardsSort.addEventListener("change", () => {
+      renderSeasonCardsTestPage();
     });
   }
 
@@ -1709,6 +1729,10 @@ function renderAll() {
 
   if (document.getElementById("ratings-grid")) {
     renderRatingsPage();
+  }
+
+  if (document.getElementById("season-cards-grid")) {
+    renderSeasonCardsTestPage();
   }
 
   if (document.getElementById("custom-team-a")) {
@@ -2642,7 +2666,7 @@ function renderTradeModal() {
     <div class="offseason-summary-grid trade-summary-grid">
       <article class="offseason-summary-card">
         <span>Your Cap Space</span>
-        <strong>${formatCrores(userCapSpace)} <em class="trade-cap-delta ${userCapClass}">${formatTradeCapDelta(userCapDelta)} cr</em> <em class="trade-cap-projected ${userProjectedCapClass}">| ${formatCrores(userProjectedCapSpace)}</em></strong>
+        <strong>${formatCrores(userCapSpace)} <em class="trade-cap-delta ${userCapClass}">${formatTradeCapDelta(userCapDelta)} cr</em> <span class="trade-cap-separator">|</span> <em class="trade-cap-projected ${userProjectedCapClass}">${formatCrores(userProjectedCapSpace)}</em></strong>
       </article>
       <article class="offseason-summary-card">
         <span>Your Roster Space</span>
@@ -2650,7 +2674,7 @@ function renderTradeModal() {
       </article>
       <article class="offseason-summary-card">
         <span>${escapeHtml(opponentTeam?.name || "Opponent")} Cap Space</span>
-        <strong>${opponentTeam ? `${formatCrores(opponentCapSpace)} <em class="trade-cap-delta ${opponentCapClass}">${formatTradeCapDelta(opponentCapDelta)} cr</em> <em class="trade-cap-projected ${opponentProjectedCapClass}">| ${formatCrores(opponentProjectedCapSpace)}</em>` : "--"}</strong>
+        <strong>${opponentTeam ? `${formatCrores(opponentCapSpace)} <em class="trade-cap-delta ${opponentCapClass}">${formatTradeCapDelta(opponentCapDelta)} cr</em> <span class="trade-cap-separator">|</span> <em class="trade-cap-projected ${opponentProjectedCapClass}">${formatCrores(opponentProjectedCapSpace)}</em>` : "--"}</strong>
       </article>
       <article class="offseason-summary-card">
         <span>${escapeHtml(opponentTeam?.code || "Opponent")} Roster Space</span>
@@ -3363,6 +3387,34 @@ function getSeasonSnapshotForPlayer(teamCode, playerData) {
   return seasonStats || createSeasonPlayerSnapshot(playerData, teamCode);
 }
 
+function getSeasonEntriesForPlayer(playerData, fallbackTeamCode = null) {
+  const matchesPlayer = (entry) => (
+    Boolean(entry) &&
+    (
+      (playerData.customId && entry.customId === playerData.customId) ||
+      entry.name === playerData.name
+    )
+  );
+  const historyEntries = (state.seasonHistory || []).filter(matchesPlayer);
+  const currentEntry = (state.season?.playerStats || []).find(matchesPlayer)
+    || createSeasonPlayerSnapshot(playerData, fallbackTeamCode || playerData.teamCode || null);
+  const combined = [...historyEntries];
+
+  if (!combined.some((entry) => (entry.seasonYear || state.seasonYear) === (currentEntry.seasonYear || state.seasonYear))) {
+    combined.push({
+      ...currentEntry,
+      seasonYear: currentEntry.seasonYear || state.seasonYear
+    });
+  }
+
+  return combined
+    .map((entry) => ({
+      ...entry,
+      seasonYear: entry.seasonYear || state.seasonYear
+    }))
+    .sort((a, b) => (b.seasonYear || 0) - (a.seasonYear || 0));
+}
+
 function getHistoricHighestScore(playerData, seasonStats) {
   ensurePlayerRuntimeState(playerData);
   const career = playerData.careerRecords;
@@ -3401,6 +3453,10 @@ function getHistoricBestBowling(playerData, seasonStats) {
 
 function buildLineupBackStats(playerData, teamCode) {
   const seasonStats = getSeasonSnapshotForPlayer(teamCode, playerData);
+  return buildLineupBackStatsFromSeasonEntry(seasonStats);
+}
+
+function buildLineupBackStatsFromSeasonEntry(seasonStats) {
   const matches = seasonStats.matchesPlayed || 0;
   const highestScore = seasonStats.highestScore > 0
     ? `${seasonStats.highestScore}${seasonStats.highestScoreNotOut ? "*" : ""}`
@@ -3587,11 +3643,17 @@ function renderRosterWithStatsCard() {
     .map((playerData, index) => ({ ...playerData, lineupIndex: index, inStartingXi: index < 12 }));
 
   document.getElementById("player-grid").innerHTML = roster.map((playerData) => {
-    const stats = buildLineupBackStats(playerData, team.code);
-    const profile = buildLineupBackProfile(playerData, team.code);
     const playerKey = getLineupCardPlayerKey(team.code, playerData);
+    const seasonEntries = getSeasonEntriesForPlayer(playerData, team.code);
+    const selectedYear = Number(state.seasonCardYearSelections[playerKey]) || seasonEntries[0]?.seasonYear || state.seasonYear;
+    const activeSeasonEntry = seasonEntries.find((entry) => entry.seasonYear === selectedYear) || seasonEntries[0] || getSeasonSnapshotForPlayer(team.code, playerData);
+    const stats = buildLineupBackStatsFromSeasonEntry(activeSeasonEntry);
+    const profile = buildLineupBackProfile(playerData, team.code);
     const isFlipped = isLineupCardFlipped(team.code, playerData);
     const activeBackView = getLineupCardView(team.code, playerData);
+    const yearOptions = seasonEntries.map((entry) => `
+      <option value="${entry.seasonYear}" ${entry.seasonYear === selectedYear ? "selected" : ""}>${entry.seasonYear}</option>
+    `).join("");
 
     return `
       <article class="player-card lineup-card ${playerData.inStartingXi ? "is-starting-xi" : "is-bench"} ${state.selectedLineupSwap?.teamCode === team.code && state.selectedLineupSwap?.index === playerData.lineupIndex ? "is-selected" : ""} ${isFlipped ? "is-flipped" : ""}" draggable="true" data-lineup-card="${playerData.lineupIndex}">
@@ -3648,7 +3710,11 @@ function renderRosterWithStatsCard() {
               </div>
               <span class="rating-badge">${playerData.ratings.overall}</span>
             </div>
-            <div class="lineup-card-stats-summary">${activeBackView === "profile" ? profile.summary : stats.summary}</div>
+            <div class="lineup-card-stats-summary ${activeBackView === "profile" ? "" : "lineup-card-stats-summary-season"}">${activeBackView === "profile" ? profile.summary : `
+              <select class="season-card-year-select" data-lineup-season-year="${escapeHtml(playerKey)}">
+                ${yearOptions}
+              </select>
+            `}</div>
             ${activeBackView === "profile" ? `
               <div class="lineup-card-stats-block">
                 <p class="lineup-card-stats-label">Profile</p>
@@ -3754,13 +3820,25 @@ function renderRosterWithStatsCard() {
     });
   });
 
+  document.querySelectorAll("[data-lineup-season-year]").forEach((select) => {
+    select.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+    select.addEventListener("change", (event) => {
+      event.stopPropagation();
+      state.seasonCardYearSelections[event.target.dataset.lineupSeasonYear] = Number(event.target.value);
+      renderRosterWithStatsCard();
+    });
+  });
+
   document.querySelectorAll("[data-lineup-card]").forEach((card) => {
     card.addEventListener("click", (event) => {
       if (
         event.target.closest("[data-impact-sub]") ||
         event.target.closest("[data-trade-trigger]") ||
         event.target.closest("[data-lineup-stats-toggle]") ||
-        event.target.closest("[data-lineup-profile-toggle]")
+        event.target.closest("[data-lineup-profile-toggle]") ||
+        event.target.closest("[data-lineup-season-year]")
       ) {
         return;
       }
@@ -4324,6 +4402,16 @@ function getLineupFinisherScore(playerData) {
   return (playerData.ratings?.batting || 25) + (playerData.ratings?.intent || 25) * 0.38 + (playerData.ratings?.allRound || 38) * 0.18 - (playerData.opener ? 5 : 0);
 }
 
+function getLineupLowerOrderScore(playerData) {
+  return (
+    (playerData.ratings?.batting || 25) +
+    (playerData.ratings?.allRound || 38) * 0.24 +
+    (playerData.ratings?.bowling || 25) * 0.16 +
+    (playerData.ratings?.intent || 25) * 0.12 +
+    (playerData.ratings?.composure || 25) * 0.1
+  );
+}
+
 function getLineupBowlerScore(playerData) {
   return playerData.ratings?.bowling || 25;
 }
@@ -4415,41 +4503,42 @@ function getAutoStartingLineupPlanForTeam(team) {
   const openingPair = [...chosenTwelve].sort((a, b) => getLineupOpeningScore(b) - getLineupOpeningScore(a)).slice(0, 2);
   const openingIds = new Set(openingPair.map((playerData) => playerData.customId || playerData.name));
   const remainingChosen = chosenTwelve.filter((playerData) => !openingIds.has(playerData.customId || playerData.name));
-  const bowlingCore = [...remainingChosen]
-    .sort((a, b) => getLineupBowlerScore(b) - getLineupBowlerScore(a))
-    .slice(0, Math.min(4, remainingChosen.length));
-  const bowlingIds = new Set(bowlingCore.map((playerData) => playerData.customId || playerData.name));
-  const battingCore = remainingChosen.filter((playerData) => !bowlingIds.has(playerData.customId || playerData.name));
-  const orderedBowlingCore = [...bowlingCore]
-    .sort((a, b) => (b.ratings?.batting || 25) - (a.ratings?.batting || 25) || getLineupBowlerScore(b) - getLineupBowlerScore(a));
-  const orderedBattingCore = [
-    ...battingCore
-      .sort((a, b) => getLineupTopOrderScore(b) - getLineupTopOrderScore(a))
-      .slice(0, Math.min(2, battingCore.length)),
-    ...battingCore
-      .sort((a, b) => getLineupMiddleOrderScore(b) - getLineupMiddleOrderScore(a))
-      .filter((playerData, index, array) => index < array.length)
-  ];
-  const seenOrderedIds = new Set();
-  const orderedTwelve = [...openingPair, ...orderedBattingCore, ...orderedBowlingCore]
-    .filter((playerData) => {
+  const slotOrderedPlayers = [];
+  const seenOrderedIds = new Set(openingIds);
+  const addOrderedPlayers = (count, scorer, predicate = () => true) => {
+    pickLineupCandidates(remainingChosen, count, scorer, seenOrderedIds, predicate).forEach((playerData) => {
       const key = playerData.customId || playerData.name;
       if (seenOrderedIds.has(key)) {
-        return false;
+        return;
       }
       seenOrderedIds.add(key);
-      return true;
-    })
-    .slice(0, chosenTwelve.length);
+      slotOrderedPlayers.push(playerData);
+    });
+  };
+
+  addOrderedPlayers(2, getLineupTopOrderScore);
+  addOrderedPlayers(2, getLineupMiddleOrderScore);
+  addOrderedPlayers(1, getLineupFinisherScore);
+
+  const orderedLowerOrder = remainingChosen
+    .filter((playerData) => !seenOrderedIds.has(playerData.customId || playerData.name))
+    .sort((a, b) => getLineupLowerOrderScore(b) - getLineupLowerOrderScore(a) || getLineupBowlerScore(b) - getLineupBowlerScore(a));
+
+  const orderedTwelve = [...openingPair, ...slotOrderedPlayers, ...orderedLowerOrder].slice(0, chosenTwelve.length);
+  const orderedTwelveIds = new Set(orderedTwelve.map((playerData) => playerData.customId || playerData.name));
+  const bowlingGroup = [...chosenTwelve]
+    .sort((a, b) => getLineupBowlerScore(b) - getLineupBowlerScore(a))
+    .slice(0, Math.min(4, chosenTwelve.length));
+  const battingGroup = orderedTwelve.slice(0, Math.min(7, orderedTwelve.length));
 
   const remainingBench = players
-    .filter((playerData) => !seenOrderedIds.has(playerData.customId || playerData.name))
+    .filter((playerData) => !orderedTwelveIds.has(playerData.customId || playerData.name))
     .sort((a, b) => (b.ratings?.overall || 50) - (a.ratings?.overall || 50));
 
   return {
     lineupNames: [...orderedTwelve, ...remainingBench].map((playerData) => playerData.name),
-    battingGroupNames: [...openingPair, ...orderedBattingCore].map((playerData) => playerData.name),
-    bowlingGroupNames: orderedBowlingCore.map((playerData) => playerData.name)
+    battingGroupNames: battingGroup.map((playerData) => playerData.name),
+    bowlingGroupNames: bowlingGroup.map((playerData) => playerData.name)
   };
 }
 
@@ -4818,6 +4907,272 @@ function renderRatingsPage() {
   `).join("");
 
   renderRatingsLeaders(players);
+}
+
+function getSeasonCardsSortValue(playerData, sortKey) {
+  if (sortKey === "ratingsOverall") {
+    return playerData.ratings?.overall || 0;
+  }
+  return Number(playerData?.[sortKey]) || 0;
+}
+
+function formatSeasonCardBestBowling(playerData) {
+  if (!playerData?.bestBowlingWickets) {
+    return "--";
+  }
+  return `${playerData.bestBowlingWickets}/${playerData.bestBowlingRuns}`;
+}
+
+function formatSeasonCardHighestScore(playerData) {
+  if (!playerData?.highestScore) {
+    return "--";
+  }
+  return `${playerData.highestScore}${playerData.highestScoreNotOut ? "*" : ""}`;
+}
+
+function getSeasonCardPlayerKey(playerData) {
+  return `${playerData.teamCode}::${playerData.customId || playerData.name}`;
+}
+
+function getSeasonCardsHistoryEntries() {
+  const historyEntries = state.seasonHistory || [];
+  const hasRecordedCurrentSeason = historyEntries.some((entry) => entry.seasonYear === state.seasonYear);
+  const currentSeasonEntries = hasRecordedCurrentSeason
+    ? []
+    : (state.season?.playerStats || []).map((playerData) => ({
+      ...playerData,
+      seasonYear: state.seasonYear
+    }));
+
+  return [...historyEntries, ...currentSeasonEntries];
+}
+
+function getSeasonCardsTestPlayers() {
+  const entriesBySeason = new Map();
+  getSeasonCardsHistoryEntries().forEach((playerData) => {
+    const seasonKey = playerData?.seasonYear ?? state.seasonYear;
+    if (!entriesBySeason.has(seasonKey)) {
+      entriesBySeason.set(seasonKey, []);
+    }
+    entriesBySeason.get(seasonKey).push(playerData);
+  });
+
+  const adjustedEntries = [...entriesBySeason.values()].flatMap((entries) => buildSeasonAwardImpactBook(entries));
+  const playerMap = new Map();
+
+  adjustedEntries.forEach((playerData) => {
+    const playerKey = getSeasonCardPlayerKey(playerData);
+    const existing = playerMap.get(playerKey) || {
+      playerKey,
+      identity: {
+        name: playerData.name,
+        teamCode: playerData.teamCode,
+        role: playerData.role,
+        ratings: playerData.ratings,
+        customId: playerData.customId || null
+      },
+      seasons: []
+    };
+    existing.seasons.push(playerData);
+    playerMap.set(playerKey, existing);
+  });
+
+  return [...playerMap.values()].map((entry) => {
+    entry.seasons.sort((a, b) => (b.seasonYear || 0) - (a.seasonYear || 0));
+    return entry;
+  });
+}
+
+function getSelectedSeasonCardEntry(playerRecord) {
+  const selectedYear = Number(state.seasonCardYearSelections[playerRecord.playerKey]) || playerRecord.seasons[0]?.seasonYear;
+  return playerRecord.seasons.find((season) => season.seasonYear === selectedYear) || playerRecord.seasons[0];
+}
+
+function renderSeasonStatCard(playerRecord) {
+  const playerData = getSelectedSeasonCardEntry(playerRecord);
+  const selectedYear = playerData?.seasonYear || playerRecord.seasons[0]?.seasonYear || state.seasonYear;
+  const yearOptions = playerRecord.seasons.map((season) => `
+    <option value="${season.seasonYear}" ${season.seasonYear === selectedYear ? "selected" : ""}>${season.seasonYear}</option>
+  `).join("");
+  const stats = buildLineupBackStatsFromSeasonEntry(playerData);
+  const profile = buildLineupBackProfile(playerData, playerData.teamCode);
+  const playerKey = getLineupCardPlayerKey(playerData.teamCode, playerData);
+  const isFlipped = isLineupCardFlipped(playerData.teamCode, playerData);
+  const activeBackView = getLineupCardView(playerData.teamCode, playerData);
+
+  return `
+    <article class="player-card lineup-card season-test-lineup-card ${isFlipped ? "is-flipped" : ""}" data-season-test-card="${escapeHtml(playerRecord.playerKey)}">
+      <div class="lineup-card-inner">
+        <section class="lineup-card-face lineup-card-front">
+          <div class="player-header">
+            <div>
+              <h3>${escapeHtml(playerData.name)}</h3>
+              <p class="player-meta">${escapeHtml(playerData.role)} &bull; ${escapeHtml(playerData.battingStyle || "--")}</p>
+            </div>
+            <span class="rating-badge">${playerData.ratings?.overall || "--"}</span>
+          </div>
+          <div class="player-ratings">
+            <span>Bat<strong>${playerData.ratings?.batting || "--"}</strong></span>
+            <span>Bowl<strong>${playerData.ratings?.bowling || "--"}</strong></span>
+            <span>AR<strong>${playerData.ratings?.allRound || "--"}</strong></span>
+            <span>Cltch<strong>${playerData.ratings?.clutch || "--"}</strong></span>
+            <span>Fld<strong>${playerData.ratings?.fielding || "--"}</strong></span>
+            <span>Lead<strong>${playerData.ratings?.leadership || "--"}</strong></span>
+            <span>Intent<strong>${playerData.ratings?.intent || "--"}</strong></span>
+            <span>Comp<strong>${playerData.ratings?.composure || "--"}</strong></span>
+            <span>Econ<strong>${playerData.ratings?.econ || "--"}</strong></span>
+            <span>WktTk<strong>${playerData.ratings?.wkts || "--"}</strong></span>
+          </div>
+          <div class="lineup-card-toggle-row season-test-toggle-row">
+            <button class="player-ratings-toggle lineup-card-front-toggle ${activeBackView === "profile" && isFlipped ? "is-active" : ""}" type="button" data-season-card-profile-toggle data-lineup-player-key="${escapeHtml(playerKey)}" aria-label="Show player card details" aria-pressed="${activeBackView === "profile" && isFlipped ? "true" : "false"}">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <circle cx="11" cy="11" r="5.5" />
+                <path d="M16 16L21 21" />
+              </svg>
+            </button>
+            <button class="player-ratings-toggle lineup-card-front-toggle ${activeBackView === "stats" && isFlipped ? "is-active" : ""}" type="button" data-season-card-stats-toggle data-lineup-player-key="${escapeHtml(playerKey)}" aria-label="Show player stats" aria-pressed="${activeBackView === "stats" && isFlipped ? "true" : "false"}">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M5 18V11M12 18V7M19 18V13" />
+              </svg>
+            </button>
+          </div>
+        </section>
+        <section class="lineup-card-face lineup-card-back">
+          <div class="player-header">
+            <div>
+              <h3>${escapeHtml(playerData.name)}</h3>
+              <p class="player-meta">${escapeHtml(playerData.role)} &bull; ${escapeHtml(playerData.battingStyle || "--")}</p>
+            </div>
+            <span class="rating-badge">${playerData.ratings?.overall || "--"}</span>
+          </div>
+          <div class="lineup-card-stats-summary">
+            ${activeBackView === "profile" ? profile.summary : `
+              <select class="season-card-year-select" data-season-card-year="${escapeHtml(playerRecord.playerKey)}">
+                ${yearOptions}
+              </select>
+            `}
+          </div>
+          ${activeBackView === "profile" ? `
+            <div class="lineup-card-stats-block">
+              <p class="lineup-card-stats-label">Profile</p>
+              <div class="lineup-card-stats-grid">
+                ${profile.details.map((item) => `
+                  <span><small>${item.label}</small><strong>${item.value}</strong></span>
+                `).join("")}
+              </div>
+            </div>
+          ` : `
+            <div class="lineup-card-stats-block">
+              <p class="lineup-card-stats-label">Batting</p>
+              <div class="lineup-card-stats-grid">
+                ${stats.batting.map((item) => `
+                  <span><small>${item.label}</small><strong>${item.value}</strong></span>
+                `).join("")}
+              </div>
+            </div>
+            <div class="lineup-card-stats-block">
+              <p class="lineup-card-stats-label">Bowling</p>
+              <div class="lineup-card-stats-grid">
+                ${stats.bowling.map((item) => `
+                  <span><small>${item.label}</small><strong>${item.value}</strong></span>
+                `).join("")}
+              </div>
+            </div>
+          `}
+          <div class="lineup-card-toggle-row lineup-card-toggle-row-back season-test-toggle-row">
+            <button class="player-ratings-toggle lineup-card-back-toggle ${activeBackView === "profile" ? "is-active" : ""}" type="button" data-season-card-profile-toggle data-lineup-player-key="${escapeHtml(playerKey)}" aria-label="Show player card details" aria-pressed="${activeBackView === "profile" ? "true" : "false"}">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <circle cx="11" cy="11" r="5.5" />
+                <path d="M16 16L21 21" />
+              </svg>
+            </button>
+            <button class="player-ratings-toggle lineup-card-back-toggle ${activeBackView === "stats" ? "is-active" : ""}" type="button" data-season-card-stats-toggle data-lineup-player-key="${escapeHtml(playerKey)}" aria-label="Show player stats" aria-pressed="${activeBackView === "stats" ? "true" : "false"}">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M5 18V11M12 18V7M19 18V13" />
+              </svg>
+            </button>
+          </div>
+        </section>
+      </div>
+    </article>
+  `;
+}
+
+function renderSeasonCardsTestPage() {
+  const grid = document.getElementById("season-cards-grid");
+  if (!grid) {
+    return;
+  }
+
+  const summary = document.getElementById("season-cards-summary");
+  const teamFilter = document.getElementById("season-cards-team-filter")?.value || "ALL";
+  const sortKey = document.getElementById("season-cards-sort")?.value || "awardMvpScore";
+  const players = getSeasonCardsTestPlayers()
+    .filter((playerRecord) => teamFilter === "ALL" || playerRecord.identity.teamCode === teamFilter)
+    .sort((a, b) => {
+      const aSelected = getSelectedSeasonCardEntry(a);
+      const bSelected = getSelectedSeasonCardEntry(b);
+      if (sortKey === "seasonEconomy") {
+        return getSeasonCardsSortValue(aSelected, sortKey) - getSeasonCardsSortValue(bSelected, sortKey) ||
+          getSeasonCardsSortValue(bSelected, "seasonWickets") - getSeasonCardsSortValue(aSelected, "seasonWickets");
+      }
+      return getSeasonCardsSortValue(bSelected, sortKey) - getSeasonCardsSortValue(aSelected, sortKey) ||
+        getSeasonCardsSortValue(bSelected, "awardMvpScore") - getSeasonCardsSortValue(aSelected, "awardMvpScore") ||
+        getSeasonCardsSortValue(bSelected, "seasonRuns") - getSeasonCardsSortValue(aSelected, "seasonRuns");
+    });
+
+  if (summary) {
+    summary.textContent = players.length
+      ? `${players.length} player cards shown. Sort and team filter only affect this test page.`
+      : "No players available for this filter.";
+  }
+
+  grid.innerHTML = players.length
+    ? players.map((playerRecord) => renderSeasonStatCard(playerRecord)).join("")
+    : `<div class="scorecard-block"><p class="player-season-line">No player cards available for this filter.</p></div>`;
+
+  grid.querySelectorAll("[data-season-card-stats-toggle]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const playerKey = button.dataset.lineupPlayerKey;
+      const playerRecord = players.find((entry) => getLineupCardPlayerKey(getSelectedSeasonCardEntry(entry).teamCode, getSelectedSeasonCardEntry(entry)) === playerKey);
+      const playerData = playerRecord ? getSelectedSeasonCardEntry(playerRecord) : null;
+      if (!playerData) return;
+      if (isLineupCardFlipped(playerData.teamCode, playerData) && getLineupCardView(playerData.teamCode, playerData) === "stats") {
+        delete state.lineupCardFlips[playerKey];
+        renderSeasonCardsTestPage();
+        return;
+      }
+      setLineupCardView(playerData.teamCode, playerData, "stats");
+      state.lineupCardFlips[playerKey] = true;
+      renderSeasonCardsTestPage();
+    });
+  });
+
+  grid.querySelectorAll("[data-season-card-profile-toggle]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const playerKey = button.dataset.lineupPlayerKey;
+      const playerRecord = players.find((entry) => getLineupCardPlayerKey(getSelectedSeasonCardEntry(entry).teamCode, getSelectedSeasonCardEntry(entry)) === playerKey);
+      const playerData = playerRecord ? getSelectedSeasonCardEntry(playerRecord) : null;
+      if (!playerData) return;
+      if (isLineupCardFlipped(playerData.teamCode, playerData) && getLineupCardView(playerData.teamCode, playerData) === "profile") {
+        delete state.lineupCardFlips[playerKey];
+        renderSeasonCardsTestPage();
+        return;
+      }
+      setLineupCardView(playerData.teamCode, playerData, "profile");
+      state.lineupCardFlips[playerKey] = true;
+      renderSeasonCardsTestPage();
+    });
+  });
+
+  grid.querySelectorAll("[data-season-card-year]").forEach((select) => {
+    select.addEventListener("change", (event) => {
+      state.seasonCardYearSelections[event.target.dataset.seasonCardYear] = Number(event.target.value);
+      renderSeasonCardsTestPage();
+    });
+  });
 }
 
 function renderRatingsLeaders(players) {
@@ -7726,32 +8081,32 @@ function calculateSeasonAwards(playerBook) {
 }
 
 function buildSeasonAwardImpactBook(playerBook) {
-  const top20RunAverage = getAverageOfTopSeasonValues(playerBook, "seasonRuns", 20);
-  const top20WicketAverage = getAverageOfTopSeasonValues(playerBook, "seasonWickets", 20);
+  const top10RunAverage = getAverageOfTopSeasonValues(playerBook, "seasonRuns", 10);
+  const top10WicketAverage = getAverageOfTopSeasonValues(playerBook, "seasonWickets", 10);
 
   return (playerBook || []).map((playerData) => ({
     ...playerData,
-    awardMvpScore: getEndOfSeasonMvpScore(playerData, top20RunAverage, top20WicketAverage)
+    awardMvpScore: getEndOfSeasonMvpScore(playerData, top10RunAverage, top10WicketAverage)
   }));
 }
 
-function getEndOfSeasonMvpScore(playerData, top20RunAverage, top20WicketAverage) {
+function getEndOfSeasonMvpScore(playerData, top10RunAverage, top10WicketAverage) {
   const baseImpact = Number(playerData?.mvpScore) || 0;
   const seasonRuns = Number(playerData?.seasonRuns) || 0;
   const seasonWickets = Number(playerData?.seasonWickets) || 0;
-  const exceedsRunAverage = top20RunAverage > 0 && seasonRuns > top20RunAverage;
-  const exceedsWicketAverage = top20WicketAverage > 0 && seasonWickets > top20WicketAverage;
+  const exceedsRunAverage = top10RunAverage > 0 && seasonRuns > top10RunAverage;
+  const exceedsWicketAverage = top10WicketAverage > 0 && seasonWickets > top10WicketAverage;
 
   if (!exceedsRunAverage && !exceedsWicketAverage) {
     return baseImpact;
   }
 
   const qualifyingMultipliers = [];
-  if (exceedsRunAverage && top20RunAverage > 0) {
-    qualifyingMultipliers.push(seasonRuns / top20RunAverage);
+  if (exceedsRunAverage && top10RunAverage > 0) {
+    qualifyingMultipliers.push(seasonRuns / top10RunAverage);
   }
-  if (exceedsWicketAverage && top20WicketAverage > 0) {
-    qualifyingMultipliers.push(seasonWickets / top20WicketAverage);
+  if (exceedsWicketAverage && top10WicketAverage > 0) {
+    qualifyingMultipliers.push(seasonWickets / top10WicketAverage);
   }
 
   if (!qualifyingMultipliers.length) {
