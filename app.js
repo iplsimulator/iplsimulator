@@ -1105,14 +1105,18 @@ function buildAutoBowlingPlan(players) {
   return plan;
 }
 
-function getTopBowlingPlanPlayers(players, maxBowlers = 5) {
+function sortEligibleBowlers(players) {
   return (players || [])
     .filter((playerData) => playerData && isEligibleBowler(playerData))
     .sort((a, b) => (
       (b.ratings?.bowling || 0) - (a.ratings?.bowling || 0) ||
       (b.ratings?.econ || 0) - (a.ratings?.econ || 0) ||
       (b.ratings?.wkts || 0) - (a.ratings?.wkts || 0)
-    ))
+    ));
+}
+
+function getTopBowlingPlanPlayers(players, maxBowlers = 5) {
+  return sortEligibleBowlers(players)
     .slice(0, Math.min(maxBowlers, players?.length || 0));
 }
 
@@ -3996,13 +4000,7 @@ function getEligibleBowlingPlanPlayers(teamCode) {
       : secondImpactPlayer;
   const bowlingPlanPlayers = buildImpactAdjustedLineup(activeTwelve, impactIndices, bowlingImpactPlayer);
 
-  return bowlingPlanPlayers
-    .filter((playerData) => playerData && isEligibleBowler(playerData))
-    .sort((a, b) => (
-      (b.ratings?.bowling || 0) - (a.ratings?.bowling || 0) ||
-      (b.ratings?.econ || 0) - (a.ratings?.econ || 0) ||
-      (b.ratings?.wkts || 0) - (a.ratings?.wkts || 0)
-    ));
+  return sortEligibleBowlers(bowlingPlanPlayers);
 }
 
 function getBowlingPlan(teamCode) {
@@ -5849,12 +5847,12 @@ function renderAwards() {
       label: "Best Impact Sub",
       player: state.season.awards.impactPlayer,
       stat: state.season.awards.impactPlayer
-        ? `${state.season.awards.impactPlayer.mvpScore || 0} impact`
+        ? `${state.season.awards.impactPlayer.awardMvpScore || 0} impact`
         : "Need 75% impact usage"
     },
     { label: "Purple Cap Holder", player: state.season.awards.bestBowler, stat: `${Math.round(state.season.awards.bestBowler?.seasonWickets || 0)} wickets` },
     { label: "Orange Cap Holder", player: state.season.awards.bestBatter, stat: `${state.season.awards.bestBatter?.seasonRuns || 0} runs` },
-    { label: "MVP", player: state.season.awards.mvp, stat: `${state.season.awards.mvp?.mvpScore || 0} impact score` }
+    { label: "MVP", player: state.season.awards.mvp, stat: `${state.season.awards.mvp?.awardMvpScore || 0} impact score` }
   ];
 
   document.getElementById("award-races").innerHTML = races.map((race) => `
@@ -6337,7 +6335,7 @@ function calculateMatchImpactEntries(firstInnings, secondInnings) {
       const oversValue = oversToBalls(entry.overs) / 6;
       if (oversValue <= 0) return;
       const economy = oversValue > 0 ? entry.runs / oversValue : 99;
-      const wicketsImpact = entry.wickets * 36;
+      const wicketsImpact = entry.wickets * 28;
       const economyImpact = Math.max(-10, Math.min(18, (7.2 - economy) * oversValue * 1.5));
       const bowlingImpact = wicketsImpact + economyImpact;
       const playerKey = getMatchImpactKey(entry.name, bowlingTeamCode);
@@ -6592,14 +6590,15 @@ function ensureBowlingCardEntry(bowlingCard, bowlerName) {
 }
 
 function resolveBowlerForOver(bowlingTeam, overIndex, oversByBowler, pitch, battingOrder) {
-  const bowlersAvailable = getTopBowlingPlanPlayers(bowlingTeam.bowlingPlayers || bowlingTeam.players || []);
-  if (!bowlersAvailable.length) {
+  const allEligibleBowlers = sortEligibleBowlers(bowlingTeam.bowlingPlayers || bowlingTeam.players || []);
+  if (!allEligibleBowlers.length) {
     return null;
   }
+  const bowlersAvailable = getTopBowlingPlanPlayers(allEligibleBowlers);
 
   const bowlingPlan = Array.isArray(bowlingTeam.bowlingPlan) ? bowlingTeam.bowlingPlan : [];
   const plannedBowlerName = bowlingPlan[overIndex];
-  const plannedBowler = bowlersAvailable.find((playerData) => playerData.name === plannedBowlerName);
+  const plannedBowler = allEligibleBowlers.find((playerData) => playerData.name === plannedBowlerName);
   if (plannedBowler) {
     return plannedBowler;
   }
@@ -7183,7 +7182,8 @@ function renderSeasonStatLeaders() {
   const leaderboard = isAllTime
     ? getAllTimeLeaderboardDefinition(state.seasonStat)
     : getSeasonLeaderboardDefinition(state.seasonStat);
-  const source = isAllTime ? getAllTimeLeaderboardEntries() : (state.season.playerStats || []);
+  const rawSource = isAllTime ? getAllTimeLeaderboardEntries() : (state.season.playerStats || []);
+  const source = state.seasonStat === "impact" ? buildLeaderboardImpactEntries(rawSource) : rawSource;
 
   if (!source.length) {
     container.innerHTML = `<div class="scorecard-block"><p class="player-season-line">Simulate a season to unlock the top-five batting and bowling tables.</p></div>`;
@@ -7213,6 +7213,19 @@ function renderSeasonStatLeaders() {
       </div>
     </article>
   `).join("");
+}
+
+function buildLeaderboardImpactEntries(playerBook) {
+  const entriesBySeason = new Map();
+  (playerBook || []).forEach((playerData) => {
+    const seasonKey = playerData?.seasonYear ?? "__current__";
+    if (!entriesBySeason.has(seasonKey)) {
+      entriesBySeason.set(seasonKey, []);
+    }
+    entriesBySeason.get(seasonKey).push(playerData);
+  });
+
+  return [...entriesBySeason.values()].flatMap((entries) => buildSeasonAwardImpactBook(entries));
 }
 
 function getSeasonLeaderboardDefinition(key) {
@@ -7273,9 +7286,9 @@ function getSeasonLeaderboardDefinition(key) {
       secondary: (playerData) => `${playerData.seasonFours} fours | SR ${playerData.seasonStrikeRate.toFixed(1)}`
     },
     impact: {
-      eligible: () => true,
-      sort: (a, b) => b.mvpScore - a.mvpScore || b.seasonRuns - a.seasonRuns,
-      value: (playerData) => `${playerData.mvpScore} impact`,
+      eligible: (playerData) => (playerData.awardMvpScore || 0) > 0,
+      sort: (a, b) => b.awardMvpScore - a.awardMvpScore || b.mvpScore - a.mvpScore || b.seasonRuns - a.seasonRuns,
+      value: (playerData) => `${playerData.awardMvpScore || 0} impact`,
       secondary: (playerData) => `${playerData.seasonRuns} runs | ${playerData.seasonWickets} wickets`
     }
   };
@@ -7350,9 +7363,9 @@ function getAllTimeLeaderboardDefinition(key) {
       secondary: (playerData) => `${playerData.seasonFours} fours | SR ${playerData.seasonStrikeRate.toFixed(1)}`
     },
     impact: {
-      eligible: (playerData) => playerData.mvpScore > 0,
-      sort: (a, b) => b.mvpScore - a.mvpScore || b.seasonRuns - a.seasonRuns,
-      value: (playerData) => `${playerData.mvpScore} impact`,
+      eligible: (playerData) => (playerData.awardMvpScore || 0) > 0,
+      sort: (a, b) => b.awardMvpScore - a.awardMvpScore || b.mvpScore - a.mvpScore || b.seasonRuns - a.seasonRuns,
+      value: (playerData) => `${playerData.awardMvpScore || 0} impact`,
       secondary: (playerData) => `${playerData.seasonRuns} runs | ${playerData.seasonWickets} wickets`
     }
   };
