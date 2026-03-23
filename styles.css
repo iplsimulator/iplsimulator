@@ -466,6 +466,8 @@ body::before {
   margin-bottom: 8px;
   display: flex;
   justify-content: flex-end;
+  align-items: end;
+  gap: 4px;
 }
 
 .trade-team-select-row label {
@@ -474,8 +476,147 @@ body::before {
   font-size: 0.88rem;
   text-transform: uppercase;
   color: var(--muted);
-  width: calc(50% - 21px);
+  width: calc(50% - 90px);
   min-width: 0;
+}
+
+.trade-finder-panel {
+  margin-bottom: 10px;
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.trade-finder-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.trade-finder-head h3 {
+  margin: 0;
+  font-size: 1.02rem;
+}
+
+.trade-finder-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.trade-finder-card {
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(11, 23, 40, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: grid;
+  gap: 10px;
+}
+
+.trade-finder-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.trade-finder-card-top h4 {
+  margin: 0;
+  font-size: 0.98rem;
+}
+
+.trade-finder-card-top p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.trade-finder-card .ghost-btn {
+  width: 100%;
+}
+
+.trade-finder-carousel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.trade-finder-card-focus {
+  min-height: 100%;
+}
+
+.trade-finder-card-footer {
+  display: grid;
+  gap: 10px;
+  margin-top: auto;
+}
+
+.trade-mode-btn,
+.trade-finder-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  cursor: pointer;
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.trade-mode-btn:hover,
+.trade-mode-btn:focus-visible,
+.trade-finder-nav:hover,
+.trade-finder-nav:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(92, 225, 230, 0.45);
+  background: rgba(92, 225, 230, 0.08);
+}
+
+.trade-mode-btn svg,
+.trade-finder-nav svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.trade-mode-btn span,
+.trade-finder-nav span {
+  display: inline-block;
+  font-family: "Rajdhani", sans-serif;
+  font-size: 1.45rem;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.trade-mode-btn svg path,
+.trade-finder-nav svg path,
+.trade-mode-btn svg circle,
+.trade-finder-nav svg circle {
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.55;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.trade-mode-btn[data-trade-finder-search] {
+  color: rgba(92, 225, 230, 1);
+}
+
+.trade-search-icon {
+  display: block;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  pointer-events: none;
 }
 
 .trade-machine {
@@ -760,6 +901,18 @@ body::before {
   }
 
   .trade-team-select-row label {
+    width: 100%;
+  }
+
+  .trade-finder-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .trade-finder-carousel {
+    grid-template-columns: 1fr;
+  }
+
+  .trade-finder-nav {
     width: 100%;
   }
 }
@@ -1453,6 +1606,27 @@ select option {
   font: inherit;
 }
 
+.input-suffix-wrap {
+  position: relative;
+  display: block;
+}
+
+.input-suffix-wrap input {
+  padding-right: 48px;
+}
+
+.input-suffix {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+  font-size: 0.88rem;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
 .make-player-input select {
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(11, 23, 40, 0.7);
@@ -1460,6 +1634,16 @@ select option {
   border-radius: 14px;
   padding: 12px 14px;
   font: inherit;
+}
+
+#make-player-contract {
+  -moz-appearance: textfield;
+}
+
+#make-player-contract::-webkit-outer-spin-button,
+#make-player-contract::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .slider-grid {

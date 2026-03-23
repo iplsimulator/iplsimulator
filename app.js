@@ -72,6 +72,7 @@ const state = {
   recordedAwardSeasonYear: null,
   seasonCardYearSelections: {},
   offseason: null,
+  seasonTradeState: null,
   tradeModal: {
     open: false,
     activeSlot: null
@@ -84,7 +85,11 @@ const state = {
     teamA: [],
     teamB: []
   },
-  dataError: null
+  dataError: null,
+  ratingsDataSource: {
+    type: "database",
+    label: "IPL 2026 database"
+  }
 };
 
 initApp();
@@ -382,6 +387,7 @@ function serializeStateForSave() {
     seasonYear: state.seasonYear,
     recordedAwardSeasonYear: state.recordedAwardSeasonYear,
     offseason: serializeOffseasonForSave(state.offseason),
+    seasonTradeState: deepCloneSerializable(state.seasonTradeState),
     tradeModal: { open: false, activeSlot: null },
     impactSubs: deepCloneSerializable(state.impactSubs),
     bowlingPlans: deepCloneSerializable(state.bowlingPlans),
@@ -482,6 +488,63 @@ function getSaveSummaryMarkup(payload) {
       ${escapeHtml(formatSaveTimestamp(payload.savedAt))}
     </p>
   `;
+}
+
+function describeRatingsDataSource(source = state.ratingsDataSource) {
+  if (!source) {
+    return "Showing ratings from the default IPL 2026 database.";
+  }
+  if (source.type === "save") {
+    return `Showing ratings from ${source.label || "an imported save"}.`;
+  }
+  return `Showing ratings from the ${source.label || "default IPL 2026 database"}.`;
+}
+
+function renderRatingsDataSourceStatus() {
+  const status = document.getElementById("ratings-source-status");
+  if (!status) {
+    return;
+  }
+  status.textContent = describeRatingsDataSource();
+}
+
+function syncSaveModalContextMessage() {
+  if (document.getElementById("franchise-team-select")) {
+    saveStatusState = { message: "Choose a slot to save or load your franchise.", tone: "neutral" };
+    return;
+  }
+  if (document.getElementById("ratings-grid")) {
+    saveStatusState = { message: "Import a CricketSim save file to display player ratings from it.", tone: "neutral" };
+  }
+}
+
+function setRatingsDataSource(source) {
+  state.ratingsDataSource = source || { type: "database", label: "IPL 2026 database" };
+  renderRatingsDataSourceStatus();
+}
+
+function buildRatingsSaveSourceLabel(payload, prefix = "Imported save") {
+  const meta = payload?.meta || {};
+  const franchise = meta.franchiseName || meta.franchiseTeam || "Unknown franchise";
+  const seasonYear = meta.seasonYear || "--";
+  return `${prefix} (${franchise}, Season ${seasonYear})`;
+}
+
+function populateRatingsTeamFilterOptions() {
+  const ratingsTeamFilter = document.getElementById("ratings-team-filter");
+  if (!ratingsTeamFilter) {
+    return;
+  }
+
+  const previousValue = state.ratingsFilter;
+  ratingsTeamFilter.innerHTML = "";
+  ratingsTeamFilter.add(new Option("All Teams", "ALL"));
+  teams.forEach((team) => {
+    ratingsTeamFilter.add(new Option(`${team.code} - ${team.name}`, team.code));
+  });
+
+  state.ratingsFilter = previousValue === "ALL" || findTeam(previousValue) ? previousValue : "ALL";
+  ratingsTeamFilter.value = state.ratingsFilter;
 }
 
 function renderSavePanel() {
@@ -644,6 +707,7 @@ function restoreLoadedState(payload) {
     seasonYear: Number(savedState.seasonYear) || 2026,
     recordedAwardSeasonYear: savedState.recordedAwardSeasonYear ?? null,
     offseason: hydrateSavedOffseason(savedState.offseason),
+    seasonTradeState: deepCloneSerializable(savedState.seasonTradeState || createEmptyTradeState()),
     tradeModal: { open: false, activeSlot: null },
     impactSubs: deepCloneSerializable(savedState.impactSubs || {}),
     bowlingPlans: deepCloneSerializable(savedState.bowlingPlans || {}),
@@ -689,9 +753,13 @@ function saveGameToSlot(slotNumber) {
   renderSavePanel();
 }
 
-function loadSavePayloadToRuntime(payload, successMessage = "Save loaded.", slotNumber = null) {
+function loadSavePayloadToRuntime(payload, successMessage = "Save loaded.", slotNumber = null, ratingsSource = null) {
   restoreLoadedState(payload);
+  populateRatingsTeamFilterOptions();
   activeSaveSlot = slotNumber;
+  if (ratingsSource) {
+    setRatingsDataSource(ratingsSource);
+  }
   setSaveStatus(successMessage, "success");
   renderSavePanel();
   renderFeaturedResultMessage(successMessage);
@@ -707,7 +775,10 @@ function loadGameFromSlot(slotNumber) {
     if (!window.confirm(`Load slot ${slotNumber}? Your current unsaved progress will be replaced.`)) {
       return;
     }
-    loadSavePayloadToRuntime(payload, `Loaded slot ${slotNumber}.`, slotNumber);
+    loadSavePayloadToRuntime(payload, `Loaded slot ${slotNumber}.`, slotNumber, {
+      type: "save",
+      label: buildRatingsSaveSourceLabel(payload, `save slot ${slotNumber}`)
+    });
   } catch (error) {
     console.error("Failed to load save slot.", error);
     setSaveStatus("Could not load that save slot.", "error");
@@ -763,7 +834,10 @@ function importSaveFile(file) {
       if (!payload?.teams || !payload?.state) {
         throw new Error("This file does not look like a CricketSim save.");
       }
-      loadSavePayloadToRuntime(payload, "Imported save loaded.", null);
+      loadSavePayloadToRuntime(payload, "Imported save loaded.", null, {
+        type: "save",
+        label: buildRatingsSaveSourceLabel(payload)
+      });
     } catch (error) {
       console.error("Failed to import save.", error);
       setSaveStatus(error.message || "Could not import save.", "error");
@@ -779,6 +853,7 @@ async function initApp() {
     teams = await loadTeamsFromCsv();
     hydrateRatings();
     initializeStateFromTeams();
+    setRatingsDataSource({ type: "database", label: "IPL 2026 database" });
     initControls();
     renderAll();
   } catch (error) {
@@ -934,10 +1009,10 @@ function createCustomPlayerRow(teamCode) {
     teamCode,
     name: preview.name,
     playerName: preview.name,
-    age: "",
+    age: preview.age === null || preview.age === undefined ? "" : String(preview.age),
     role: preview.role,
     sourceRole: preview.role,
-    contract: "",
+    contract: preview.contract === null || preview.contract === undefined ? "" : String(preview.contract),
     battingStyle: preview.battingStyle,
     battingHand: preview.battingHand,
     bowlingType: preview.bowlingType,
@@ -963,7 +1038,8 @@ function addCustomPlayerToRuntime(row) {
   const customPlayer = player(normalized);
   ensurePlayerRuntimeState(customPlayer);
   customPlayer.teamCode = row.teamCode;
-  customPlayer.contract = getFairMarketSalary(customPlayer);
+  customPlayer.age = normalized.age === "" || normalized.age === undefined ? null : Number(normalized.age);
+  customPlayer.contract = normalized.contract === "" || normalized.contract === undefined ? 1 : Number(normalized.contract);
   customPlayer.marketValue = customPlayer.contract;
   team.players = [...team.players, customPlayer];
   team.teamRatings = calculateTeamRatings(team.players);
@@ -1419,7 +1495,7 @@ function calculateRatings(playerData) {
     ? calculateBowlingRatingFromSkills(normalizedEcon, normalizedWkts)
     : 25;
   const bowlingOverallValue = noBowlingProfile ? 25 : clamp(22 + econBase + wktsBase, 22, 99);
-  const allRoundValue = clamp((battingRating + bowlingOverallValue) / 2, 38, 99);
+  const allRoundValue = clamp((battingRating + bowlingRating) / 2, 38, 99);
   const allRoundBonus = Math.max(0, allRoundValue - 55) * 0.12;
   const fielding = clamp(playerData.fielding ?? playerData.makePlayerTargets?.fielding ?? 78, 70, 99);
   const leadership = clamp(playerData.leadership ?? playerData.makePlayerTargets?.leadership ?? 72, 70, 99);
@@ -1434,17 +1510,22 @@ function calculateRatings(playerData) {
   const allRounder = battingRating > 60 && bowlingRating > 35;
   const battingAllRounder = allRounder && battingRating >= bowlingRating;
   const bowlingAllRounder = allRounder && bowlingRating > battingRating;
+  const battingSpecialistOverall = battingRating * 0.9;
+  const bowlingSpecialistOverall = bowlingRating * 0.9;
+  const allRoundOverall = battingAllRounder
+    ? battingRating * 0.7 + bowlingOverallValue * 0.3 + allRoundBonus
+    : bowlingAllRounder
+    ? battingRating * 0.3 + bowlingOverallValue * 0.7 + allRoundBonus
+    : battingRating * 0.5 + bowlingOverallValue * 0.5;
 
   const baseOverall = clamp(
     battingRating < 60
-      ? bowlingRating * 0.9
-      : battingAllRounder
-      ? battingRating * 0.7 + bowlingOverallValue * 0.3 + allRoundBonus
-      : bowlingAllRounder
-      ? battingRating * 0.3 + bowlingOverallValue * 0.7 + allRoundBonus
+      ? bowlingSpecialistOverall
+      : battingAllRounder || bowlingAllRounder
+      ? Math.max(allRoundOverall, battingSpecialistOverall, bowlingSpecialistOverall)
       : bowlingRating < 35
-      ? battingRating * 0.9
-      : battingRating * 0.5 + bowlingOverallValue * 0.5,
+      ? battingSpecialistOverall
+      : allRoundOverall,
     25,
     99
   );
@@ -1707,6 +1788,7 @@ function initControls() {
 }
 
 function renderAll() {
+  syncSaveModalContextMessage();
   initContactOverlay();
   initSavesOverlay();
   initBowlingPlanModal();
@@ -1728,6 +1810,7 @@ function renderAll() {
   }
 
   if (document.getElementById("ratings-grid")) {
+    renderRatingsDataSourceStatus();
     renderRatingsPage();
   }
 
@@ -2045,7 +2128,11 @@ function createEmptyTradeState(seedPlayer = null) {
     history: state.offseason?.tradeHistory || [],
     gmMessage: "Select a team and build the package.",
     officeMessage: "Select a team and see how the package looks.",
-    negotiationState: "idle"
+    negotiationState: "idle",
+    view: "manual",
+    finderIndex: 0,
+    teamSearchResults: [],
+    searchMode: null
   };
 }
 
@@ -2061,11 +2148,15 @@ function openTradeModal(seedPlayerId) {
   if (!overlay) {
     return;
   }
-  const userTeam = getWorkingOffseasonTeam(state.franchiseTeam);
+  const userTeam = normalizeTradeTeamPlayers(getTradeTeam(state.franchiseTeam));
   const seedPlayer = userTeam?.players.find((playerData) => playerData.offseasonId === seedPlayerId) || null;
   state.tradeModal.open = true;
   state.tradeModal.activeSlot = null;
-  state.offseason.tradeState = createEmptyTradeState(seedPlayer);
+  if (state.offseason?.phase === "trade") {
+    state.offseason.tradeState = createEmptyTradeState(seedPlayer);
+  } else {
+    state.seasonTradeState = createEmptyTradeState(seedPlayer);
+  }
   renderTradeModal();
   overlay.hidden = false;
   document.body.classList.add("how-to-play-open");
@@ -2188,10 +2279,51 @@ function renderTradeValueStars(starRating) {
 }
 
 function getTradeState() {
-  if (!state.offseason?.tradeState) {
-    state.offseason.tradeState = createEmptyTradeState();
+  if (state.offseason?.phase === "trade") {
+    if (!state.offseason.tradeState) {
+      state.offseason.tradeState = createEmptyTradeState();
+    }
+    return state.offseason.tradeState;
   }
-  return state.offseason.tradeState;
+  if (!state.seasonTradeState) {
+    state.seasonTradeState = createEmptyTradeState();
+  }
+  return state.seasonTradeState;
+}
+
+function getTradeTeamPool() {
+  return state.offseason?.workingTeams?.length ? state.offseason.workingTeams : teams;
+}
+
+function getTradeTeam(teamCode) {
+  return getTradeTeamPool().find((team) => team.code === teamCode) || null;
+}
+
+function ensureTradePlayerId(playerData, teamCode, index = 0) {
+  if (!playerData) {
+    return null;
+  }
+  playerData.offseasonId = getOffseasonPlayerId(playerData, teamCode || playerData.teamCode || "", index);
+  return playerData.offseasonId;
+}
+
+function normalizeTradeTeamPlayers(team) {
+  if (!team?.players?.length) {
+    return team;
+  }
+  team.players.forEach((playerData, index) => {
+    ensureTradePlayerId(playerData, team.code, index);
+  });
+  return team;
+}
+
+function getTradeBudget(teamCode) {
+  if (state.offseason?.budgets?.[teamCode] !== undefined) {
+    return state.offseason.budgets[teamCode] || 0;
+  }
+  const team = getTradeTeam(teamCode);
+  const payroll = (team?.players || []).reduce((total, playerData) => total + (Number(playerData.contract) || 0), 0);
+  return Math.max(0, OFFSEASON_SALARY_CAP - payroll);
 }
 
 function getTradeSlotPlayers(slotIds = []) {
@@ -2201,10 +2333,11 @@ function getTradeSlotPlayers(slotIds = []) {
 }
 
 function findTradePlayerById(offseasonId) {
-  if (!offseasonId || !state.offseason?.workingTeams?.length) {
+  if (!offseasonId) {
     return null;
   }
-  for (const team of state.offseason.workingTeams) {
+  for (const team of getTradeTeamPool()) {
+    normalizeTradeTeamPlayers(team);
     const found = team.players.find((playerData) => playerData.offseasonId === offseasonId);
     if (found) {
       return found;
@@ -2226,34 +2359,18 @@ function getLockedTradeOpponentTeamCode() {
 }
 
 function getTradeSalaryRoom(teamCode, outgoingTotal = 0) {
-  return (state.offseason?.budgets?.[teamCode] || 0) + outgoingTotal;
+  return getTradeBudget(teamCode) + outgoingTotal;
 }
 
-function getTradeAssessment() {
-  if (!state.offseason) {
-    return null;
-  }
-  const tradeState = getTradeState();
-  const userTeam = getWorkingOffseasonTeam(state.franchiseTeam);
-  const opponentTeamCode = getLockedTradeOpponentTeamCode();
-  const opponentTeam = opponentTeamCode ? getWorkingOffseasonTeam(opponentTeamCode) : null;
-  const userPlayers = getTradeSlotPlayers(tradeState.userSlots);
-  const opponentPlayers = getTradeSlotPlayers(tradeState.opponentSlots);
-  const userOutgoingSalary = userPlayers.reduce((total, playerData) => total + (Number(playerData.contract) || 0), 0);
-  const opponentOutgoingSalary = opponentPlayers.reduce((total, playerData) => total + (Number(playerData.contract) || 0), 0);
+function getTradeValueBalance(userPlayers = [], opponentPlayers = []) {
   const userOutgoingValue = userPlayers.reduce((total, playerData) => total + getPlayerTradeValue(playerData), 0);
   const opponentOutgoingValue = opponentPlayers.reduce((total, playerData) => total + getPlayerTradeValue(playerData), 0);
   const opponentHasStarPlayer = opponentPlayers.some((playerData) => getTradeValueStarRating(playerData) >= 4);
-  const requiredOpponentValueBonus = opponentHasStarPlayer ? 100 : 0;
-  const userSalaryPass = opponentPlayers.length > 0 && opponentOutgoingSalary <= getTradeSalaryRoom(state.franchiseTeam, userOutgoingSalary);
-  const opponentSalaryPass = opponentTeam && userOutgoingSalary <= getTradeSalaryRoom(opponentTeam.code, opponentOutgoingSalary);
-  const userRosterAfter = (userTeam?.players.length || 0) - userPlayers.length + opponentPlayers.length;
-  const opponentRosterAfter = opponentTeam ? opponentTeam.players.length - opponentPlayers.length + userPlayers.length : 0;
-  const rosterPass = userRosterAfter <= MAX_ROSTER_SIZE && (!opponentTeam || opponentRosterAfter <= MAX_ROSTER_SIZE);
-  const minimumRosterPass = userRosterAfter >= 14 && (!opponentTeam || opponentRosterAfter >= 14);
+  const requiredOpponentValueMultiplier = opponentHasStarPlayer ? 1.15 : 1;
+  const minimumOpponentAsk = opponentOutgoingValue * 0.8 * requiredOpponentValueMultiplier;
   const valueRatio = opponentOutgoingValue > 0 ? userOutgoingValue / opponentOutgoingValue : (userOutgoingValue > 0 ? Infinity : 1);
   const opponentNeedsMoreValue = opponentOutgoingValue > 0
-    ? userOutgoingValue < Math.max(opponentOutgoingValue * 0.8, opponentOutgoingValue + requiredOpponentValueBonus)
+    ? userOutgoingValue < minimumOpponentAsk
     : userOutgoingValue <= 0;
   const userIsOverpaying = opponentOutgoingValue > 0 && userOutgoingValue > opponentOutgoingValue * 1.4;
   const valueStatus = opponentNeedsMoreValue
@@ -2268,8 +2385,39 @@ function getTradeAssessment() {
     : userIsOverpaying
     ? "opponent_overpay"
     : "balanced";
+
+  return {
+    userOutgoingValue,
+    opponentOutgoingValue,
+    opponentHasStarPlayer,
+    requiredOpponentValueMultiplier,
+    minimumOpponentAsk,
+    valueRatio,
+    opponentNeedsMoreValue,
+    userIsOverpaying,
+    valueStatus,
+    valueDirection
+  };
+}
+
+function getTradeAssessment() {
+  const tradeState = getTradeState();
+  const userTeam = getTradeTeam(state.franchiseTeam);
+  const opponentTeamCode = getLockedTradeOpponentTeamCode();
+  const opponentTeam = opponentTeamCode ? getTradeTeam(opponentTeamCode) : null;
+  const userPlayers = getTradeSlotPlayers(tradeState.userSlots);
+  const opponentPlayers = getTradeSlotPlayers(tradeState.opponentSlots);
+  const userOutgoingSalary = userPlayers.reduce((total, playerData) => total + (Number(playerData.contract) || 0), 0);
+  const opponentOutgoingSalary = opponentPlayers.reduce((total, playerData) => total + (Number(playerData.contract) || 0), 0);
+  const valueBalance = getTradeValueBalance(userPlayers, opponentPlayers);
+  const userSalaryPass = opponentPlayers.length > 0 && opponentOutgoingSalary <= getTradeSalaryRoom(state.franchiseTeam, userOutgoingSalary);
+  const opponentSalaryPass = opponentTeam && userOutgoingSalary <= getTradeSalaryRoom(opponentTeam.code, opponentOutgoingSalary);
+  const userRosterAfter = (userTeam?.players.length || 0) - userPlayers.length + opponentPlayers.length;
+  const opponentRosterAfter = opponentTeam ? opponentTeam.players.length - opponentPlayers.length + userPlayers.length : 0;
+  const rosterPass = userRosterAfter <= MAX_ROSTER_SIZE && (!opponentTeam || opponentRosterAfter <= MAX_ROSTER_SIZE);
+  const minimumRosterPass = userRosterAfter >= 14 && (!opponentTeam || opponentRosterAfter >= 14);
   const complete = userPlayers.length > 0 && opponentPlayers.length > 0 && opponentTeam;
-  const feasible = Boolean(complete && userSalaryPass && opponentSalaryPass && rosterPass && minimumRosterPass && valueStatus !== "Rejected");
+  const feasible = Boolean(complete && userSalaryPass && opponentSalaryPass && rosterPass && minimumRosterPass && valueBalance.valueStatus !== "Rejected");
   return {
     complete,
     feasible,
@@ -2279,30 +2427,650 @@ function getTradeAssessment() {
     opponentPlayers,
     userOutgoingSalary,
     opponentOutgoingSalary,
-    userOutgoingValue,
-    opponentOutgoingValue,
-    opponentHasStarPlayer,
-    requiredOpponentValueBonus,
+    userOutgoingValue: valueBalance.userOutgoingValue,
+    opponentOutgoingValue: valueBalance.opponentOutgoingValue,
+    opponentHasStarPlayer: valueBalance.opponentHasStarPlayer,
+    requiredOpponentValueMultiplier: valueBalance.requiredOpponentValueMultiplier,
+    minimumOpponentAsk: valueBalance.minimumOpponentAsk,
     userSalaryPass,
     opponentSalaryPass,
     rosterPass,
     minimumRosterPass,
     userRosterAfter,
     opponentRosterAfter,
-    valueRatio,
-    valueStatus,
-    valueDirection
+    valueRatio: valueBalance.valueRatio,
+    valueStatus: valueBalance.valueStatus,
+    valueDirection: valueBalance.valueDirection
   };
 }
 
+function getTeamPayroll(teamCode) {
+  const team = getTradeTeam(teamCode);
+  return (team?.players || []).reduce((total, playerData) => total + (Number(playerData.contract) || 0), 0);
+}
+
+function getTradeFinderOutgoingPlayers() {
+  const tradeState = getTradeState();
+  return getTradeSlotPlayers(tradeState.userSlots);
+}
+
+function getTradeFinderSeedPlayer() {
+  const outgoingPlayers = getTradeFinderOutgoingPlayers();
+  return outgoingPlayers[0] || null;
+}
+
+function getTradeFinderOutgoingValue(outgoingPlayers = getTradeFinderOutgoingPlayers()) {
+  return roundToOneDecimal(outgoingPlayers.reduce((total, playerData) => total + getPlayerTradeValue(playerData), 0));
+}
+
+function getTradeFinderOutgoingSalary(outgoingPlayers = getTradeFinderOutgoingPlayers()) {
+  return roundToOneDecimal(outgoingPlayers.reduce((total, playerData) => total + (Number(playerData.contract) || 0), 0));
+}
+
+function clearTradeFinderSearch(tradeState = getTradeState()) {
+  if (!tradeState) {
+    return;
+  }
+  tradeState.teamSearchResults = [];
+  tradeState.searchMode = null;
+}
+
+function getTradeFinderHeadline(outgoingPlayers = getTradeFinderOutgoingPlayers()) {
+  if (!outgoingPlayers.length) {
+    return "Pick one of your players to scan the market.";
+  }
+  if (outgoingPlayers.length === 1) {
+    return `Interested teams for ${outgoingPlayers[0].name}`;
+  }
+  return `Interested teams for ${outgoingPlayers[0].name} + ${outgoingPlayers.length - 1} more`;
+}
+
+function getTradeFinderRoleNeedScore(team, playerData) {
+  if (!team || !playerData) {
+    return { score: 0, reasons: [] };
+  }
+
+  const roleProfile = playerData.roleProfile || inferRoleProfile(playerData);
+  const teamProfiles = (team.players || []).map((entry) => ({
+    player: entry,
+    roleProfile: entry.roleProfile || inferRoleProfile(entry)
+  }));
+  const openers = teamProfiles.filter((entry) => entry.roleProfile.opener).length;
+  const deathBowlers = teamProfiles.filter((entry) => entry.roleProfile.deathBowler).length;
+  const bowlers = teamProfiles.filter((entry) => entry.roleProfile.roleGroup !== "batter").length;
+  const allRounders = teamProfiles.filter((entry) => entry.roleProfile.roleGroup === "allRounder").length;
+  const sameRolePlayers = teamProfiles
+    .filter((entry) => entry.roleProfile.roleGroup === roleProfile.roleGroup)
+    .map((entry) => entry.player);
+
+  let score = 0;
+  const reasons = [];
+
+  if (roleProfile.opener && openers < 2) {
+    score += 10;
+    reasons.push("we need another opener");
+  }
+  if (roleProfile.deathBowler && deathBowlers < 2) {
+    score += 10;
+    reasons.push("we need death overs coverage");
+  }
+  if (roleProfile.roleGroup === "bowler" && bowlers < 6) {
+    score += 7;
+    reasons.push("we are short on bowling depth");
+  }
+  if (roleProfile.roleGroup === "allRounder" && allRounders < 3) {
+    score += 6;
+    reasons.push("we could use another all-round option");
+  }
+
+  const sameRoleBenchmark = sameRolePlayers.length
+    ? Math.max(...sameRolePlayers.map((entry) => entry.ratings?.overall || 0))
+    : 0;
+  const roleUpgrade = Math.max(0, (playerData.ratings?.overall || 0) - sameRoleBenchmark);
+  if (roleUpgrade > 0) {
+    score += roleUpgrade * 0.45;
+    reasons.push(`your player would upgrade our ${roleProfile.roleGroup} group`);
+  }
+
+  return {
+    score: roundToOneDecimal(score),
+    reasons: reasons.slice(0, 2)
+  };
+}
+
+function getTradeFinderLineupUpgradeScore(team, playerData) {
+  if (!team || !playerData) {
+    return 0;
+  }
+  const topXi = [...(team.players || [])]
+    .sort((a, b) => (b.ratings?.overall || 0) - (a.ratings?.overall || 0))
+    .slice(0, 11);
+  const weakestTopXi = topXi.length ? Math.min(...topXi.map((entry) => entry.ratings?.overall || 0)) : 0;
+  return roundToOneDecimal(Math.max(0, (playerData.ratings?.overall || 0) - weakestTopXi) * 0.8);
+}
+
+function getTradeFinderAgeTimelineScore(team, playerData) {
+  if (!team || !playerData) {
+    return { score: 0, reason: null };
+  }
+  const age = Number(playerData.age) || 27;
+  const teamOverall = team.teamRatings?.overall || 75;
+  if (teamOverall >= 80) {
+    if (age <= 30 && (playerData.ratings?.overall || 0) >= 82) {
+      return { score: 6, reason: "your player fits our win-now core" };
+    }
+    if (age >= 33) {
+      return { score: -3, reason: "your player is older than our usual core" };
+    }
+    return { score: 2, reason: null };
+  }
+  if (age <= 25) {
+    return { score: 7, reason: "your player matches our younger timeline" };
+  }
+  if (age >= 31) {
+    return { score: -4, reason: "your player does not fit our younger timeline" };
+  }
+  return { score: 1, reason: null };
+}
+
+function getTradeFinderContractFitScore(team, playerData) {
+  if (!team || !playerData) {
+    return { score: 0, reason: null };
+  }
+
+  const contract = Number(playerData.contract) || 0;
+  const marketValue = Number(playerData.marketValue ?? getFairMarketSalary(playerData)) || 0;
+  const valueDelta = marketValue - contract;
+  const salaryCap = state.offseason?.salaryCap || OFFSEASON_SALARY_CAP;
+  const teamPayroll = getTeamPayroll(team.code);
+  const budgetBuffer = getTradeBudget(team.code) - contract;
+  const top3SalaryShare = teamPayroll > 0
+    ? [...(team.players || [])]
+      .map((entry) => Number(entry.contract) || 0)
+      .sort((a, b) => b - a)
+      .slice(0, 3)
+      .reduce((total, value) => total + value, 0) / teamPayroll
+    : 0;
+
+  const valueScore = clamp(valueDelta * 3.4, -12, 12);
+  const affordabilityScore = budgetBuffer >= 10 ? 9 : budgetBuffer >= 5 ? 5 : budgetBuffer >= 0 ? 1 : budgetBuffer >= -3 ? -6 : -12;
+  const rosterShapeScore = contract >= salaryCap * 0.1 && top3SalaryShare > 0.46 ? -5 : contract <= 6 ? 3 : 0;
+  const score = roundToOneDecimal(valueScore + affordabilityScore + rosterShapeScore);
+  const reason = valueDelta >= 2
+    ? "your contract works for us"
+    : budgetBuffer < 0
+    ? "the cap fit is tight for us"
+    : null;
+
+  return { score, reason };
+}
+
+function isTradeFinderUntouchable(playerData, seedPlayer, outgoingValue = getTradeFinderOutgoingValue()) {
+  if (!playerData || !seedPlayer) {
+    return false;
+  }
+  const playerOverall = playerData.ratings?.overall || 0;
+  const seedOverall = seedPlayer.ratings?.overall || 0;
+  const playerStarRating = getTradeValueStarRating(playerData);
+  const seedStarRating = getTradeValueStarRating(seedPlayer);
+  const age = Number(playerData.age) || 27;
+  return (playerStarRating >= 4.5 && seedStarRating < 4.5 && outgoingValue < getPlayerTradeValue(playerData) * 0.92) ||
+    (playerOverall >= 90 && seedOverall < playerOverall - 3 && outgoingValue < getPlayerTradeValue(playerData) * 0.9) ||
+    (age <= 25 && playerOverall >= 86 && seedStarRating < 4 && outgoingValue < getPlayerTradeValue(playerData) * 0.94);
+}
+
+function getTradeFinderReturnFitScore(userTeam, opponentTeam, candidate, seedPlayer) {
+  const userNeed = getTradeFinderRoleNeedScore(userTeam, candidate).score;
+  const opponentSurplus = Math.max(0, (opponentTeam.players || []).filter((entry) => {
+    const profile = entry.roleProfile || inferRoleProfile(entry);
+    return profile.roleGroup === (candidate.roleProfile || inferRoleProfile(candidate)).roleGroup;
+  }).length - 3) * 2;
+  const valueDelta = Math.abs(getPlayerTradeValue(seedPlayer) - getPlayerTradeValue(candidate));
+  return roundToOneDecimal(userNeed + opponentSurplus - valueDelta * 0.18);
+}
+
+function isTradeFinderPackageFeasible(outgoingPlayers, opponentTeam, packagePlayers) {
+  if (!outgoingPlayers.length || !opponentTeam || !packagePlayers.length) {
+    return false;
+  }
+
+  const outgoingSalary = getTradeFinderOutgoingSalary(outgoingPlayers);
+  const packageSalary = packagePlayers.reduce((total, playerData) => total + (Number(playerData.contract) || 0), 0);
+  const userSalaryPass = packageSalary <= getTradeSalaryRoom(state.franchiseTeam, outgoingSalary);
+  const opponentSalaryPass = outgoingSalary <= getTradeSalaryRoom(opponentTeam.code, packageSalary);
+  const userRosterAfter = (getTradeTeam(state.franchiseTeam)?.players.length || 0) - outgoingPlayers.length + packagePlayers.length;
+  const opponentRosterAfter = opponentTeam.players.length - packagePlayers.length + outgoingPlayers.length;
+  const rosterPass = userRosterAfter <= MAX_ROSTER_SIZE && opponentRosterAfter <= MAX_ROSTER_SIZE && userRosterAfter >= 14 && opponentRosterAfter >= 14;
+  const valueBalance = getTradeValueBalance(outgoingPlayers, packagePlayers);
+  return userSalaryPass && opponentSalaryPass && rosterPass && valueBalance.valueStatus !== "Rejected" && !valueBalance.userIsOverpaying;
+}
+
+function buildTradeFinderPackage(outgoingPlayers, opponentTeam) {
+  const userTeam = getTradeTeam(state.franchiseTeam);
+  const seedPlayer = outgoingPlayers[0] || null;
+  if (!seedPlayer || !opponentTeam || !userTeam) {
+    return null;
+  }
+  normalizeTradeTeamPlayers(opponentTeam);
+  const outgoingValue = getTradeFinderOutgoingValue(outgoingPlayers);
+
+  const eligiblePlayers = (opponentTeam.players || [])
+    .filter((playerData) => !isTradeFinderUntouchable(playerData, seedPlayer, outgoingValue))
+    .sort((a, b) => getTradeFinderReturnFitScore(userTeam, opponentTeam, b, seedPlayer) - getTradeFinderReturnFitScore(userTeam, opponentTeam, a, seedPlayer))
+    .slice(0, 8);
+
+  let bestPackage = null;
+
+  const evaluatePackage = (packagePlayers) => {
+    if (!isTradeFinderPackageFeasible(outgoingPlayers, opponentTeam, packagePlayers)) {
+      return;
+    }
+    const packageValue = packagePlayers.reduce((total, playerData) => total + getPlayerTradeValue(playerData), 0);
+    const fitScore = packagePlayers.reduce((total, playerData) => total + getTradeFinderReturnFitScore(userTeam, opponentTeam, playerData, seedPlayer), 0);
+    const closenessScore = 24 - Math.abs(outgoingValue - packageValue) * 1.15;
+    const contractSwing = (getTradeFinderOutgoingSalary(outgoingPlayers) - packagePlayers.reduce((total, playerData) => total + (Number(playerData.contract) || 0), 0)) * 0.4;
+    const score = roundToOneDecimal(fitScore + closenessScore + contractSwing);
+    if (!bestPackage || score > bestPackage.score) {
+      bestPackage = {
+        players: packagePlayers,
+        score,
+        packageValue: roundToOneDecimal(packageValue)
+      };
+    }
+  };
+
+  eligiblePlayers.forEach((playerData, index) => {
+    evaluatePackage([playerData]);
+    eligiblePlayers.slice(index + 1).forEach((partner) => {
+      evaluatePackage([playerData, partner]);
+    });
+  });
+
+  return bestPackage;
+}
+
+function buildTradeFinderResults() {
+  const outgoingPlayers = getTradeFinderOutgoingPlayers();
+  const seedPlayer = outgoingPlayers[0] || null;
+  const userTeam = getTradeTeam(state.franchiseTeam);
+  const tradeTeams = getTradeTeamPool();
+  if (!seedPlayer || !userTeam || !tradeTeams.length) {
+    return [];
+  }
+
+  return tradeTeams
+    .filter((team) => team.code !== state.franchiseTeam)
+    .map((team) => {
+      const roleNeedEntries = outgoingPlayers.map((playerData) => getTradeFinderRoleNeedScore(team, playerData));
+      const ageTimelineEntries = outgoingPlayers.map((playerData) => getTradeFinderAgeTimelineScore(team, playerData));
+      const contractFitEntries = outgoingPlayers.map((playerData) => getTradeFinderContractFitScore(team, playerData));
+      const roleNeedScore = roleNeedEntries.reduce((total, entry) => total + entry.score, 0);
+      const lineupUpgrade = outgoingPlayers.reduce((total, playerData) => total + getTradeFinderLineupUpgradeScore(team, playerData), 0);
+      const ageTimelineScore = ageTimelineEntries.reduce((total, entry) => total + entry.score, 0) / outgoingPlayers.length;
+      const contractFitScore = contractFitEntries.reduce((total, entry) => total + entry.score, 0);
+      const packageOffer = buildTradeFinderPackage(outgoingPlayers, team);
+      const packageAdjustment = outgoingPlayers.length > 1 ? Math.min(8, (outgoingPlayers.length - 1) * 2.5) : 0;
+      const score = roundToOneDecimal(roleNeedScore + lineupUpgrade + ageTimelineScore + contractFitScore - packageAdjustment);
+      const reasons = [
+        ...roleNeedEntries.flatMap((entry) => entry.reasons),
+        ...ageTimelineEntries.map((entry) => entry.reason),
+        ...contractFitEntries.map((entry) => entry.reason)
+      ].filter(Boolean).slice(0, 3);
+      return {
+        teamCode: team.code,
+        teamName: team.name,
+        score,
+        reasons,
+        packageOffer
+      };
+    })
+    .filter((entry) => entry.score > 6 && entry.packageOffer)
+    .sort((a, b) => b.score - a.score || b.packageOffer.score - a.packageOffer.score)
+    .slice(0, 5);
+}
+
+function getTradeFinderInterestLabel(score) {
+  if (score >= 30) return "Strong fit";
+  if (score >= 20) return "Real interest";
+  if (score >= 12) return "Worth a call";
+  return "Light market";
+}
+
+function setTradeView(view) {
+  const tradeState = getTradeState();
+  tradeState.view = view;
+  if (view === "finder") {
+    tradeState.finderIndex = 0;
+  }
+  state.tradeModal.activeSlot = null;
+  renderTradeModal();
+}
+
+function shiftTradeFinderCard(direction) {
+  const tradeState = getTradeState();
+  const results = buildTradeFinderResults();
+  if (!results.length) {
+    tradeState.finderIndex = 0;
+    renderTradeModal();
+    return;
+  }
+  tradeState.finderIndex = (tradeState.finderIndex + direction + results.length) % results.length;
+  renderTradeModal();
+}
+
+function applyTradeFinderPackage(teamCode, opponentIds = []) {
+  const tradeState = getTradeState();
+  const outgoingPlayers = getTradeFinderOutgoingPlayers();
+  if (!outgoingPlayers.length || !teamCode || !opponentIds.length) {
+    return;
+  }
+
+  tradeState.userSlots = [outgoingPlayers[0]?.offseasonId || null, outgoingPlayers[1]?.offseasonId || null, outgoingPlayers[2]?.offseasonId || null];
+  tradeState.selectedOpponentTeamCode = teamCode;
+  tradeState.lockedOpponentTeamCode = teamCode;
+  tradeState.opponentSlots = [opponentIds[0] || null, opponentIds[1] || null, opponentIds[2] || null];
+  tradeState.negotiationState = "idle";
+  tradeState.view = "manual";
+  tradeState.gmMessage = `Trade finder opened talks with ${findTeam(teamCode)?.name || teamCode}.`;
+  tradeState.officeMessage = getUserOfficeSuggestion(getTradeAssessment());
+  state.tradeModal.activeSlot = null;
+  renderTradeModal();
+}
+
+function renderTradeFinderSection() {
+  const outgoingPlayers = getTradeFinderOutgoingPlayers();
+  const tradeState = getTradeState();
+  if (!outgoingPlayers.length) {
+    return `
+      <section class="trade-finder-panel">
+        <div class="trade-finder-head">
+          <div>
+            <p class="eyebrow">Trade Finder</p>
+            <h3>${getTradeFinderHeadline(outgoingPlayers)}</h3>
+          </div>
+          <button class="trade-mode-btn" type="button" data-trade-switch-view="manual" aria-label="Open manual trade builder">
+            <span aria-hidden="true">&equiv;</span>
+          </button>
+        </div>
+      </section>
+    `;
+  }
+
+  const results = buildTradeFinderResults();
+  if (!results.length) {
+    return `
+      <section class="trade-finder-panel">
+        <div class="trade-finder-head">
+          <div>
+            <p class="eyebrow">Trade Finder</p>
+            <h3>${escapeHtml(getTradeFinderHeadline(outgoingPlayers))}</h3>
+          </div>
+          <button class="trade-mode-btn" type="button" data-trade-switch-view="manual" aria-label="Open manual trade builder">
+            <span aria-hidden="true">&equiv;</span>
+          </button>
+        </div>
+        <p class="player-season-line">Try building a custom package manually or shop a different player.</p>
+      </section>
+    `;
+  }
+
+  const activeIndex = Math.max(0, Math.min(tradeState.finderIndex || 0, results.length - 1));
+  const result = results[activeIndex];
+
+  return `
+    <section class="trade-finder-panel">
+      <div class="trade-finder-head">
+        <div>
+          <p class="eyebrow">Trade Finder</p>
+          <h3>${escapeHtml(getTradeFinderHeadline(outgoingPlayers))}</h3>
+        </div>
+        <button class="trade-mode-btn" type="button" data-trade-switch-view="manual" aria-label="Open manual trade builder">
+          <span aria-hidden="true">&equiv;</span>
+        </button>
+      </div>
+      <div class="trade-finder-carousel">
+        <button class="trade-finder-nav" type="button" data-trade-finder-shift="-1" aria-label="Show previous interested team">
+          <span aria-hidden="true">&lsaquo;</span>
+        </button>
+        <article class="trade-finder-card trade-finder-card-focus">
+          <div class="trade-finder-card-top">
+            <div>
+              <h4>${escapeHtml(result.teamCode)} • ${escapeHtml(result.teamName)}</h4>
+              <p>${escapeHtml(getTradeFinderInterestLabel(result.score))}</p>
+            </div>
+            <span class="rating-badge">${Math.round(result.score)}</span>
+          </div>
+          <p class="player-season-line">${result.reasons.map((reason) => escapeHtml(reason)).join(" • ")}</p>
+          <p class="player-season-line">Package: ${result.packageOffer.players.map((playerData) => escapeHtml(playerData.name)).join(" + ")}</p>
+          <p class="player-season-line">Value ${result.packageOffer.packageValue} | Salary ${formatCrores(result.packageOffer.players.reduce((total, playerData) => total + (Number(playerData.contract) || 0), 0))}</p>
+          <div class="trade-finder-card-footer">
+            <span class="player-season-line">${activeIndex + 1} / ${results.length}</span>
+            <button class="ghost-btn" type="button" data-trade-finder-use="${escapeHtml(result.teamCode)}" data-trade-finder-package="${escapeHtml(result.packageOffer.players.map((playerData) => playerData.offseasonId).join(","))}">Use Package</button>
+          </div>
+        </article>
+        <button class="trade-finder-nav" type="button" data-trade-finder-shift="1" aria-label="Show next interested team">
+          <span aria-hidden="true">&rsaquo;</span>
+        </button>
+      </div>
+    </section>
+  `;
+}
+
+function getTradeFinderInterestSnapshot(team, outgoingPlayers) {
+  if (!team || !outgoingPlayers?.length) {
+    return {
+      score: 0,
+      reasons: [],
+      roleNeedScore: 0,
+      lineupUpgrade: 0,
+      ageTimelineScore: 0,
+      contractFitScore: 0
+    };
+  }
+
+  const roleNeedEntries = outgoingPlayers.map((playerData) => getTradeFinderRoleNeedScore(team, playerData));
+  const ageTimelineEntries = outgoingPlayers.map((playerData) => getTradeFinderAgeTimelineScore(team, playerData));
+  const contractFitEntries = outgoingPlayers.map((playerData) => getTradeFinderContractFitScore(team, playerData));
+  const roleNeedScore = roleNeedEntries.reduce((total, entry) => total + entry.score, 0);
+  const lineupUpgrade = outgoingPlayers.reduce((total, playerData) => total + getTradeFinderLineupUpgradeScore(team, playerData), 0);
+  const ageTimelineScore = ageTimelineEntries.reduce((total, entry) => total + entry.score, 0) / outgoingPlayers.length;
+  const contractFitScore = contractFitEntries.reduce((total, entry) => total + entry.score, 0);
+  const packageAdjustment = outgoingPlayers.length > 1 ? Math.min(8, (outgoingPlayers.length - 1) * 2.5) : 0;
+  const score = roundToOneDecimal(roleNeedScore + lineupUpgrade + ageTimelineScore + contractFitScore - packageAdjustment);
+  const reasons = [
+    ...roleNeedEntries.flatMap((entry) => entry.reasons),
+    ...ageTimelineEntries.map((entry) => entry.reason),
+    ...contractFitEntries.map((entry) => entry.reason)
+  ].filter(Boolean).slice(0, 3);
+
+  return {
+    score,
+    reasons,
+    roleNeedScore,
+    lineupUpgrade,
+    ageTimelineScore,
+    contractFitScore
+  };
+}
+
+function buildTradeFinderResults(outgoingPlayers = getTradeFinderOutgoingPlayers()) {
+  const seedPlayer = outgoingPlayers[0] || null;
+  const userTeam = getTradeTeam(state.franchiseTeam);
+  const tradeTeams = getTradeTeamPool();
+  if (!seedPlayer || !userTeam || !tradeTeams.length) {
+    return [];
+  }
+
+  return tradeTeams
+    .filter((team) => team.code !== state.franchiseTeam)
+    .map((team) => {
+      const snapshot = getTradeFinderInterestSnapshot(team, outgoingPlayers);
+      const packageOffer = buildTradeFinderPackage(outgoingPlayers, team);
+      return {
+        teamCode: team.code,
+        teamName: team.name,
+        score: snapshot.score,
+        reasons: snapshot.reasons,
+        packageOffer
+      };
+    })
+    .filter((entry) => entry.score > 6 && entry.packageOffer)
+    .sort((a, b) => b.score - a.score || b.packageOffer.score - a.packageOffer.score)
+    .slice(0, 5);
+}
+
+function formatTradeFinderReasons(reasons = []) {
+  if (!reasons.length) {
+    return "your package looks like a real upgrade for us";
+  }
+  if (reasons.length === 1) {
+    return reasons[0].charAt(0).toLowerCase() + reasons[0].slice(1);
+  }
+  if (reasons.length === 2) {
+    return `${reasons[0].charAt(0).toLowerCase() + reasons[0].slice(1)} and ${reasons[1].charAt(0).toLowerCase() + reasons[1].slice(1)}`;
+  }
+  return `${reasons[0].charAt(0).toLowerCase() + reasons[0].slice(1)}, ${reasons[1].charAt(0).toLowerCase() + reasons[1].slice(1)}, and ${reasons[2].charAt(0).toLowerCase() + reasons[2].slice(1)}`;
+}
+
+function getTradeFinderMessageForTeam(teamCode, outgoingPlayers, searchResults = []) {
+  const team = findTeam(teamCode);
+  if (!team || !outgoingPlayers.length) {
+    return "Select a team and build the package.";
+  }
+  const result = searchResults.find((entry) => entry.teamCode === teamCode);
+  const snapshot = result || getTradeFinderInterestSnapshot(getTradeTeam(teamCode) || team, outgoingPlayers);
+  return `We are interested because ${formatTradeFinderReasons(snapshot.reasons)}.`;
+}
+
+function isTradeFinderProposedDealFeasible(userPlayers, opponentTeam, opponentPlayers) {
+  if (!userPlayers.length || !opponentTeam || !opponentPlayers.length) {
+    return false;
+  }
+
+  const userOutgoingSalary = userPlayers.reduce((total, playerData) => total + (Number(playerData.contract) || 0), 0);
+  const opponentOutgoingSalary = opponentPlayers.reduce((total, playerData) => total + (Number(playerData.contract) || 0), 0);
+  const userSalaryPass = opponentOutgoingSalary <= getTradeSalaryRoom(state.franchiseTeam, userOutgoingSalary);
+  const opponentSalaryPass = userOutgoingSalary <= getTradeSalaryRoom(opponentTeam.code, opponentOutgoingSalary);
+  const userRosterAfter = (getTradeTeam(state.franchiseTeam)?.players.length || 0) - userPlayers.length + opponentPlayers.length;
+  const opponentRosterAfter = opponentTeam.players.length - opponentPlayers.length + userPlayers.length;
+  const rosterPass = userRosterAfter <= MAX_ROSTER_SIZE && opponentRosterAfter <= MAX_ROSTER_SIZE && userRosterAfter >= 14 && opponentRosterAfter >= 14;
+  const valueBalance = getTradeValueBalance(userPlayers, opponentPlayers);
+  return userSalaryPass && opponentSalaryPass && rosterPass && valueBalance.valueStatus !== "Rejected" && !valueBalance.userIsOverpaying;
+}
+
+function buildTradeFinderCounterOffer(opponentTeam, targetPlayers) {
+  const userTeam = getTradeTeam(state.franchiseTeam);
+  if (!userTeam || !opponentTeam || !targetPlayers.length) {
+    return null;
+  }
+  normalizeTradeTeamPlayers(userTeam);
+  normalizeTradeTeamPlayers(opponentTeam);
+
+  const eligiblePlayers = (userTeam.players || [])
+    .slice()
+    .sort((a, b) => (b.ratings?.overall || 0) - (a.ratings?.overall || 0));
+  const targetValue = targetPlayers.reduce((total, playerData) => total + getPlayerTradeValue(playerData), 0);
+  const targetSalary = targetPlayers.reduce((total, playerData) => total + (Number(playerData.contract) || 0), 0);
+  let bestPackage = null;
+
+  const evaluatePackage = (packagePlayers) => {
+    if (!isTradeFinderProposedDealFeasible(packagePlayers, opponentTeam, targetPlayers)) {
+      return;
+    }
+    const packageValue = packagePlayers.reduce((total, playerData) => total + getPlayerTradeValue(playerData), 0);
+    const packageSalary = packagePlayers.reduce((total, playerData) => total + (Number(playerData.contract) || 0), 0);
+    const opponentInterest = getTradeFinderInterestSnapshot(opponentTeam, packagePlayers).score;
+    const closenessScore = 28 - Math.abs(targetValue - packageValue) * 1.1;
+    const salaryScore = 8 - Math.abs(targetSalary - packageSalary) * 0.45;
+    const score = roundToOneDecimal(opponentInterest + closenessScore + salaryScore);
+    if (!bestPackage || score > bestPackage.score) {
+      bestPackage = {
+        players: packagePlayers,
+        score
+      };
+    }
+  };
+
+  eligiblePlayers.forEach((playerData, index) => {
+    evaluatePackage([playerData]);
+    eligiblePlayers.slice(index + 1).forEach((partner, partnerOffset) => {
+      evaluatePackage([playerData, partner]);
+      eligiblePlayers.slice(index + partnerOffset + 2).forEach((third) => {
+        evaluatePackage([playerData, partner, third]);
+      });
+    });
+  });
+
+  return bestPackage;
+}
+
+function runTradeFinderSearch() {
+  const tradeState = getTradeState();
+  const outgoingPlayers = getTradeSlotPlayers(tradeState.userSlots);
+  const opponentPlayers = getTradeSlotPlayers(tradeState.opponentSlots);
+  tradeState.negotiationState = "idle";
+  clearTradeFinderSearch(tradeState);
+
+  if (outgoingPlayers.length) {
+    const results = buildTradeFinderResults(outgoingPlayers);
+    tradeState.teamSearchResults = results;
+    tradeState.searchMode = "market";
+    state.tradeModal.activeSlot = null;
+    if (results.length) {
+      setTradeOpponentTeam(results[0].teamCode);
+      return;
+    }
+    tradeState.selectedOpponentTeamCode = null;
+    tradeState.lockedOpponentTeamCode = null;
+    tradeState.opponentSlots = [null, null, null];
+    tradeState.gmMessage = "I couldn't find a strong market for that package right now.";
+    tradeState.officeMessage = "This market looks quiet. You may need a different player or a sweeter offer.";
+    renderTradeModal();
+    return;
+  }
+
+  if (opponentPlayers.length) {
+    const opponentTeamCode = getLockedTradeOpponentTeamCode();
+    const opponentTeam = opponentTeamCode ? getTradeTeam(opponentTeamCode) : null;
+    if (!opponentTeam) {
+      tradeState.gmMessage = "Pick players from one team first, and I will tell you what we would need to make it work.";
+      renderTradeModal();
+      return;
+    }
+    const counterOffer = buildTradeFinderCounterOffer(opponentTeam, opponentPlayers);
+    if (!counterOffer) {
+      tradeState.gmMessage = "We cannot find a package from your side that we would green-light for that ask.";
+      tradeState.officeMessage = "This ask is too rich for the room right now.";
+      renderTradeModal();
+      return;
+    }
+    tradeState.userSlots = [
+      counterOffer.players[0]?.offseasonId || null,
+      counterOffer.players[1]?.offseasonId || null,
+      counterOffer.players[2]?.offseasonId || null
+    ];
+    tradeState.selectedOpponentTeamCode = opponentTeam.code;
+    tradeState.lockedOpponentTeamCode = opponentTeam.code;
+    tradeState.gmMessage = `We would consider ${counterOffer.players.map((playerData) => playerData.name).join(" + ")} for ${opponentPlayers.map((playerData) => playerData.name).join(" + ")}.`;
+    tradeState.officeMessage = getUserOfficeSuggestion(getTradeAssessment());
+    state.tradeModal.activeSlot = null;
+    renderTradeModal();
+    return;
+  }
+
+  tradeState.gmMessage = "Add your players to shop them, or add our players and I can see what we would ask for.";
+  tradeState.officeMessage = "Search needs a package on one side of the board first.";
+  renderTradeModal();
+}
+
 function getTradePickerPool(activeSlot) {
-  if (!activeSlot || !state.offseason) {
+  if (!activeSlot) {
     return [];
   }
   const tradeState = getTradeState();
   if (activeSlot.side === "user") {
     const selectedIds = new Set(tradeState.userSlots.filter(Boolean));
-    return (getWorkingOffseasonTeam(state.franchiseTeam)?.players || [])
+    return (normalizeTradeTeamPlayers(getTradeTeam(state.franchiseTeam))?.players || [])
       .filter((playerData) => !selectedIds.has(playerData.offseasonId));
   }
   const selectedIds = new Set(tradeState.opponentSlots.filter(Boolean));
@@ -2310,8 +3078,8 @@ function getTradePickerPool(activeSlot) {
   if (!lockedTeamCode) {
     return [];
   }
-  const candidateTeams = state.offseason.workingTeams.filter((team) => team.code === lockedTeamCode);
-  return candidateTeams.flatMap((team) => team.players
+  const candidateTeams = getTradeTeamPool().filter((team) => team.code === lockedTeamCode);
+  return candidateTeams.flatMap((team) => (normalizeTradeTeamPlayers(team)?.players || [])
     .filter((playerData) => !selectedIds.has(playerData.offseasonId))
     .map((playerData) => ({ ...playerData, pickerTeamCode: team.code })));
 }
@@ -2328,13 +3096,14 @@ function setTradeActiveSlot(side, index) {
 }
 
 function addPlayerToTrade(playerId) {
-  if (!state.tradeModal.activeSlot || !state.offseason) {
+  if (!state.tradeModal.activeSlot) {
     return;
   }
   const playerData = findTradePlayerById(playerId);
   if (!playerData) {
     return;
   }
+  ensureTradePlayerId(playerData, playerData.teamCode);
   const tradeState = getTradeState();
   if (tradeState.negotiationState === "accepted") {
     tradeState.negotiationState = "idle";
@@ -2351,6 +3120,7 @@ function addPlayerToTrade(playerId) {
     tradeState.lockedOpponentTeamCode = playerData.teamCode;
     tradeState.selectedOpponentTeamCode = playerData.teamCode;
   }
+  clearTradeFinderSearch(tradeState);
   tradeState.gmMessage = "Package updated. Send the offer when you're ready.";
   tradeState.officeMessage = getUserOfficeSuggestion(getTradeAssessment());
   state.tradeModal.activeSlot = null;
@@ -2358,9 +3128,6 @@ function addPlayerToTrade(playerId) {
 }
 
 function removePlayerFromTrade(side, index) {
-  if (!state.offseason) {
-    return;
-  }
   const tradeState = getTradeState();
   if (tradeState.negotiationState === "accepted") {
     tradeState.negotiationState = "idle";
@@ -2376,6 +3143,7 @@ function removePlayerFromTrade(side, index) {
   if (!tradeState.opponentSlots.some(Boolean)) {
     tradeState.lockedOpponentTeamCode = null;
   }
+  clearTradeFinderSearch(tradeState);
   tradeState.gmMessage = "Package updated. Send the offer when you're ready.";
   tradeState.officeMessage = getUserOfficeSuggestion(getTradeAssessment());
   renderTradeModal();
@@ -2383,16 +3151,31 @@ function removePlayerFromTrade(side, index) {
 
 function setTradeOpponentTeam(teamCode) {
   const tradeState = getTradeState();
+  const outgoingPlayers = getTradeSlotPlayers(tradeState.userSlots);
+  const searchResult = tradeState.teamSearchResults?.find((entry) => entry.teamCode === teamCode) || null;
   tradeState.selectedOpponentTeamCode = teamCode || null;
   tradeState.lockedOpponentTeamCode = teamCode || null;
-  tradeState.opponentSlots = [null, null, null];
+  tradeState.opponentSlots = searchResult?.packageOffer?.players?.length
+    ? [
+      searchResult.packageOffer.players[0]?.offseasonId || null,
+      searchResult.packageOffer.players[1]?.offseasonId || null,
+      searchResult.packageOffer.players[2]?.offseasonId || null
+    ]
+    : [null, null, null];
   tradeState.negotiationState = "idle";
   tradeState.gmMessage = teamCode
-    ? `Opening talks with ${findTeam(teamCode)?.name || teamCode}.`
+    ? outgoingPlayers.length
+      ? `${getTradeFinderMessageForTeam(teamCode, outgoingPlayers, tradeState.teamSearchResults || [])}${searchResult?.packageOffer?.players?.length ? ` We would send ${searchResult.packageOffer.players.map((playerData) => playerData.name).join(" + ")} back.` : ""}`
+      : "We are listening. Build the package and we will take a look."
     : "Select a team, build the package, and send the offer.";
   tradeState.officeMessage = teamCode
-    ? "Build the package and decide if it's worth sending."
+    ? searchResult?.packageOffer?.players?.length
+      ? "Trade finder loaded our suggested return package."
+      : "Build the package and decide if it's worth sending."
     : "Select a team and see how the package looks.";
+  if (!teamCode || !searchResult) {
+    clearTradeFinderSearch(tradeState);
+  }
   state.tradeModal.activeSlot = null;
   renderTradeModal();
 }
@@ -2410,7 +3193,7 @@ function formatTradeCapDelta(delta) {
 
 function getUserOfficeSuggestion(assessment) {
   if (!assessment?.opponentTeam) {
-    return "Pick a team and see how the package looks.";
+    return "Select a team and build the package.";
   }
   if (!assessment.complete) {
     return "Build out both sides before sending the offer.";
@@ -2438,13 +3221,13 @@ function getUserOfficeStatus(assessment) {
 }
 
 function syncTeamAfterTrade(teamCode) {
-  const team = getWorkingOffseasonTeam(teamCode);
+  const team = getTradeTeam(teamCode);
   if (!team) {
     return;
   }
   team.players.forEach((playerData, index) => {
     playerData.teamCode = teamCode;
-    playerData.offseasonId = playerData.offseasonId || getOffseasonPlayerId(playerData, teamCode, index);
+    playerData.offseasonId = getOffseasonPlayerId(playerData, teamCode, index);
     ensurePlayerRuntimeState(playerData);
   });
   team.teamRatings = calculateTeamRatings(team.players);
@@ -2489,7 +3272,7 @@ function executeTrade() {
     renderTradeModal();
     return;
   }
-  const userTeam = getWorkingOffseasonTeam(state.franchiseTeam);
+  const userTeam = getTradeTeam(state.franchiseTeam);
   const opponentTeam = assessment.opponentTeam;
   const userSendIds = new Set(assessment.userPlayers.map((playerData) => playerData.offseasonId));
   const opponentSendIds = new Set(assessment.opponentPlayers.map((playerData) => playerData.offseasonId));
@@ -2512,23 +3295,30 @@ function executeTrade() {
       offseasonId: playerData.offseasonId || getOffseasonPlayerId(playerData, opponentTeam.code, opponentTeam.players.length + index)
     })));
 
-  state.offseason.budgets[userTeam.code] = Math.max(0, (state.offseason.budgets[userTeam.code] || 0) + assessment.userOutgoingSalary - assessment.opponentOutgoingSalary);
-  state.offseason.budgets[opponentTeam.code] = Math.max(0, (state.offseason.budgets[opponentTeam.code] || 0) + assessment.opponentOutgoingSalary - assessment.userOutgoingSalary);
-  state.offseason.tradeHistory = state.offseason.tradeHistory || [];
-  state.offseason.tradeHistory.unshift({
-    fromTeamCode: userTeam.code,
-    toTeamCode: opponentTeam.code,
-    summary: `${assessment.userPlayers.map((playerData) => playerData.name).join(", ")} for ${assessment.opponentPlayers.map((playerData) => playerData.name).join(", ")}`
-  });
+  if (state.offseason?.budgets) {
+    state.offseason.budgets[userTeam.code] = Math.max(0, (state.offseason.budgets[userTeam.code] || 0) + assessment.userOutgoingSalary - assessment.opponentOutgoingSalary);
+    state.offseason.budgets[opponentTeam.code] = Math.max(0, (state.offseason.budgets[opponentTeam.code] || 0) + assessment.opponentOutgoingSalary - assessment.userOutgoingSalary);
+    state.offseason.tradeHistory = state.offseason.tradeHistory || [];
+    state.offseason.tradeHistory.unshift({
+      fromTeamCode: userTeam.code,
+      toTeamCode: opponentTeam.code,
+      summary: `${assessment.userPlayers.map((playerData) => playerData.name).join(", ")} for ${assessment.opponentPlayers.map((playerData) => playerData.name).join(", ")}`
+    });
+  }
   syncTeamAfterTrade(userTeam.code);
   syncTeamAfterTrade(opponentTeam.code);
   launchChampionshipConfetti();
-  state.offseason.tradeState = createEmptyTradeState();
-  state.offseason.tradeState.selectedOpponentTeamCode = opponentTeam.code;
-  state.offseason.tradeState.lockedOpponentTeamCode = opponentTeam.code;
-  state.offseason.tradeState.gmMessage = "Pleasure doing business with you!";
-  state.offseason.tradeState.officeMessage = "Trade completed!";
-  state.offseason.tradeState.negotiationState = "accepted";
+  const nextTradeState = createEmptyTradeState();
+  nextTradeState.selectedOpponentTeamCode = opponentTeam.code;
+  nextTradeState.lockedOpponentTeamCode = opponentTeam.code;
+  nextTradeState.gmMessage = "Pleasure doing business with you!";
+  nextTradeState.officeMessage = "Trade completed!";
+  nextTradeState.negotiationState = "accepted";
+  if (state.offseason?.phase === "trade") {
+    state.offseason.tradeState = nextTradeState;
+  } else {
+    state.seasonTradeState = nextTradeState;
+  }
   state.selectedLineupSwap = null;
   state.draggedLineupIndex = null;
   state.lineupCardFlips = {};
@@ -2536,7 +3326,9 @@ function executeTrade() {
   renderTeamCards();
   renderRoster();
   renderTradeModal();
-  renderFeaturedResultMessage(`Trade completed with ${opponentTeam.name}. Continue Sim to begin Season ${state.seasonYear + 1}.`);
+  renderFeaturedResultMessage(state.offseason?.phase === "trade"
+    ? `Trade completed with ${opponentTeam.name}. Continue Sim to begin Season ${state.seasonYear + 1}.`
+    : `Trade completed with ${opponentTeam.name}.`);
 }
 
 function renderTradeSlotSelector(side, index) {
@@ -2549,7 +3341,8 @@ function renderTradeSlotSelector(side, index) {
     if (currentValue) {
       selectedIds.delete(currentValue);
     }
-    options = (getWorkingOffseasonTeam(state.franchiseTeam)?.players || [])
+    const userTeam = normalizeTradeTeamPlayers(getTradeTeam(state.franchiseTeam));
+    options = (userTeam?.players || [])
       .filter((playerData) => !selectedIds.has(playerData.offseasonId))
       .sort((a, b) => (Number(b.contract) || 0) - (Number(a.contract) || 0) || (b.ratings?.overall || 0) - (a.ratings?.overall || 0) || a.name.localeCompare(b.name))
       .map((playerData) => `<option value="${escapeHtml(playerData.offseasonId)}" ${currentValue === playerData.offseasonId ? "selected" : ""}>${formatTradeDropdownOption(playerData)}</option>`);
@@ -2570,7 +3363,8 @@ function renderTradeSlotSelector(side, index) {
     if (currentValue) {
       selectedIds.delete(currentValue);
     }
-    options = (getWorkingOffseasonTeam(opponentTeamCode)?.players || [])
+    const opponentTeam = normalizeTradeTeamPlayers(getTradeTeam(opponentTeamCode));
+    options = (opponentTeam?.players || [])
       .filter((playerData) => !selectedIds.has(playerData.offseasonId))
       .sort((a, b) => (Number(b.contract) || 0) - (Number(a.contract) || 0) || (b.ratings?.overall || 0) - (a.ratings?.overall || 0) || a.name.localeCompare(b.name))
       .map((playerData) => `<option value="${escapeHtml(playerData.offseasonId)}" ${currentValue === playerData.offseasonId ? "selected" : ""}>${formatTradeDropdownOption(playerData)}</option>`);
@@ -2643,24 +3437,63 @@ function renderTradeModal() {
   const opponentTeam = assessment?.opponentTeam || null;
   const userPlayers = tradeState.userSlots.map((playerId) => findTradePlayerById(playerId));
   const opponentPlayers = tradeState.opponentSlots.map((playerId) => findTradePlayerById(playerId));
-  const teamOptions = state.offseason.workingTeams
-    .filter((team) => team.code !== state.franchiseTeam)
-    .map((team) => `<option value="${escapeHtml(team.code)}" ${getLockedTradeOpponentTeamCode() === team.code ? "selected" : ""}>${escapeHtml(team.code)} | ${escapeHtml(team.name)}</option>`)
+  const availableTeams = (tradeState.teamSearchResults?.length
+    ? tradeState.teamSearchResults.map((entry) => ({ code: entry.teamCode, name: entry.teamName, score: entry.score }))
+    : getTradeTeamPool()
+      .filter((team) => team.code !== state.franchiseTeam)
+      .map((team) => ({ code: team.code, name: team.name, score: null })));
+  const selectedTeamCode = getLockedTradeOpponentTeamCode();
+  const selectedOfferIndex = tradeState.teamSearchResults?.findIndex((entry) => entry.teamCode === selectedTeamCode) ?? -1;
+  const gmLabel = opponentTeam?.code
+    ? `${opponentTeam.code}'s GM${selectedOfferIndex >= 0 ? ` (${selectedOfferIndex + 1}/${tradeState.teamSearchResults.length})` : ""}`
+    : "GM";
+  const teamOptions = availableTeams
+    .map((team) => `<option value="${escapeHtml(team.code)}" ${selectedTeamCode === team.code ? "selected" : ""}>${escapeHtml(team.code)} | ${escapeHtml(team.name)}</option>`)
     .join("");
-  const userCapSpace = state.offseason.budgets[state.franchiseTeam] || 0;
-  const opponentCapSpace = opponentTeam ? (state.offseason.budgets[opponentTeam.code] || 0) : 0;
+  const userCapSpace = getTradeBudget(state.franchiseTeam);
+  const opponentCapSpace = opponentTeam ? getTradeBudget(opponentTeam.code) : 0;
   const userCapDelta = (assessment?.userOutgoingSalary || 0) - (assessment?.opponentOutgoingSalary || 0);
   const opponentCapDelta = (assessment?.opponentOutgoingSalary || 0) - (assessment?.userOutgoingSalary || 0);
   const userProjectedCapSpace = userCapSpace + userCapDelta;
   const opponentProjectedCapSpace = opponentCapSpace + opponentCapDelta;
-  const userCapClass = userCapDelta < 0 && Math.abs(userCapDelta) > (state.offseason.budgets[state.franchiseTeam] || 0) ? "is-negative" : "is-positive";
-  const opponentCapClass = opponentTeam && opponentCapDelta < 0 && Math.abs(opponentCapDelta) > (state.offseason.budgets[opponentTeam.code] || 0) ? "is-negative" : "is-positive";
+  const userCapClass = userCapDelta < 0 && Math.abs(userCapDelta) > getTradeBudget(state.franchiseTeam) ? "is-negative" : "is-positive";
+  const opponentCapClass = opponentTeam && opponentCapDelta < 0 && Math.abs(opponentCapDelta) > getTradeBudget(opponentTeam.code) ? "is-negative" : "is-positive";
   const userProjectedCapClass = userProjectedCapSpace < 0 ? "is-negative" : userProjectedCapSpace > 0 ? "is-positive" : "";
   const opponentProjectedCapClass = opponentProjectedCapSpace < 0 ? "is-negative" : opponentProjectedCapSpace > 0 ? "is-positive" : "";
-  const userRosterUsed = assessment?.opponentTeam ? assessment.userRosterAfter : (getWorkingOffseasonTeam(state.franchiseTeam)?.players.length || 0);
+  const userRosterUsed = assessment?.opponentTeam ? assessment.userRosterAfter : (getTradeTeam(state.franchiseTeam)?.players.length || 0);
   const opponentRosterUsed = assessment?.opponentTeam ? assessment.opponentRosterAfter : (opponentTeam ? opponentTeam.players.length : null);
   const userRosterClass = userRosterUsed > MAX_ROSTER_SIZE ? "is-negative" : "is-neutral";
   const opponentRosterClass = opponentRosterUsed !== null && opponentRosterUsed > MAX_ROSTER_SIZE ? "is-negative" : "is-neutral";
+  const tradeBuilderSection = `
+    <div class="trade-team-select-row">
+      <label>
+        <select data-trade-team-select>
+          <option value="">Choose team</option>
+          ${teamOptions}
+        </select>
+      </label>
+      <button class="trade-mode-btn" type="button" data-trade-finder-search aria-label="Search trade market">
+        <img class="trade-search-icon" src="person-search.svg?v=20260324a" alt="" aria-hidden="true" />
+      </button>
+    </div>
+    <div class="trade-machine">
+      <div class="trade-column">
+        <div class="trade-side">
+          ${[0, 1, 2].map((index) => renderTradeAssetCard(userPlayers[index] || null, "user", index)).join("")}
+        </div>
+      </div>
+      <div class="trade-divider" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false">
+          <path d="M7 7h10l-3.5-3.5M17 17H7l3.5 3.5M17 7l-3.5-3.5M7 17l3.5 3.5" />
+        </svg>
+      </div>
+      <div class="trade-column">
+        <div class="trade-side">
+          ${[0, 1, 2].map((index) => renderTradeAssetCard(opponentPlayers[index] || null, "opponent", index)).join("")}
+        </div>
+      </div>
+    </div>
+  `;
 
   panel.innerHTML = `
     <div class="offseason-summary-grid trade-summary-grid">
@@ -2681,38 +3514,14 @@ function renderTradeModal() {
         <strong class="${opponentRosterClass === "is-negative" ? "trade-summary-negative" : ""}">${opponentRosterUsed === null ? "--" : `${opponentRosterUsed}/${MAX_ROSTER_SIZE}`}</strong>
       </article>
     </div>
-    <div class="trade-team-select-row">
-      <label>
-        <select data-trade-team-select>
-          <option value="">Choose team</option>
-          ${teamOptions}
-        </select>
-      </label>
-    </div>
-    <div class="trade-machine">
-      <div class="trade-column">
-        <div class="trade-side">
-          ${[0, 1, 2].map((index) => renderTradeAssetCard(userPlayers[index] || null, "user", index)).join("")}
-        </div>
-      </div>
-      <div class="trade-divider" aria-hidden="true">
-        <svg viewBox="0 0 24 24" focusable="false">
-          <path d="M7 7h10l-3.5-3.5M17 17H7l3.5 3.5M17 7l-3.5-3.5M7 17l3.5 3.5" />
-        </svg>
-      </div>
-      <div class="trade-column">
-        <div class="trade-side">
-          ${[0, 1, 2].map((index) => renderTradeAssetCard(opponentPlayers[index] || null, "opponent", index)).join("")}
-        </div>
-      </div>
-    </div>
+    ${tradeBuilderSection}
     <div class="trade-status-panel trade-status-panel-dual">
       <div class="trade-status-row ${officeStatusClass}">
         <strong>Your Office</strong>
         <span>${officeMessage}</span>
       </div>
       <div class="trade-status-row ${tradeState.negotiationState === "accepted" ? "is-pass" : tradeState.negotiationState === "rejected" ? "is-fail" : "is-neutral"}">
-        <strong>${escapeHtml(opponentTeam?.code || "GM")}</strong>
+        <strong>${escapeHtml(gmLabel)}</strong>
         <span>${tradeStateMessage}</span>
       </div>
     </div>
@@ -3005,13 +3814,22 @@ function initOffseasonModals() {
       addPlayerToTrade(pick.dataset.tradePick);
       return;
     }
+    const finderSearch = event.target.closest("[data-trade-finder-search]");
+    if (finderSearch) {
+      runTradeFinderSearch();
+      return;
+    }
     if (event.target.closest("[data-trade-cancel-pick]")) {
       state.tradeModal.activeSlot = null;
       renderTradeModal();
       return;
     }
     if (event.target.closest("[data-trade-reset]")) {
-      state.offseason.tradeState = createEmptyTradeState();
+      if (state.offseason?.phase === "trade") {
+        state.offseason.tradeState = createEmptyTradeState();
+      } else {
+        state.seasonTradeState = createEmptyTradeState();
+      }
       state.tradeModal.activeSlot = null;
       renderTradeModal();
       return;
@@ -4853,6 +5671,7 @@ function startFreshSimulation(message) {
   resetPersistentAwardCounts();
   state.season = resetSeason();
   state.offseason = null;
+  state.seasonTradeState = createEmptyTradeState();
   state.tradeModal.open = false;
   state.tradeModal.activeSlot = null;
   ["retention-overlay", "auction-overlay", "trade-overlay"].forEach((id) => {
@@ -5996,6 +6815,7 @@ function applyOffseasonProgressionToPlayer(playerData, previousSnapshot) {
   seedPlayerProgressionTargets(playerData);
   const currentAge = Number(playerData.age) || 27;
   const nextAge = currentAge + 1;
+  const currentOverall = playerData.ratings?.overall ?? 60;
   const currentBatting = playerData.ratings?.batting ?? 60;
   const currentBowling = playerData.ratings?.bowling ?? 25;
   const ageDelta = nextAge <= 24 ? 2 : nextAge <= 29 ? 1 : nextAge <= 33 ? 0 : -2;
@@ -6029,8 +6849,8 @@ function applyOffseasonProgressionToPlayer(playerData, previousSnapshot) {
     -4,
     4
   );
-  const battingDelta = battingTotalDelta - getEliteRegressionPenalty(currentBatting);
-  const bowlingDelta = bowlingTotalDelta - getEliteRegressionPenalty(currentBowling);
+  const battingDelta = battingTotalDelta - getEliteRegressionPenalty(currentBatting, currentOverall);
+  const bowlingDelta = bowlingTotalDelta - getEliteRegressionPenalty(currentBowling, currentOverall);
   playerData.age = nextAge;
   playerData.fielding = clamp(
     (playerData.fielding ?? playerData.makePlayerTargets.fielding ?? 78) + ((battingTotalDelta + bowlingTotalDelta) / 2) * 0.4,
@@ -6038,11 +6858,11 @@ function applyOffseasonProgressionToPlayer(playerData, previousSnapshot) {
     99
   );
   playerData.leadership = clamp((playerData.leadership ?? playerData.makePlayerTargets.leadership ?? 72) + (nextAge >= 30 ? 0.8 : 0.2), 70, 99);
-  playerData.makePlayerTargets.intent = applyProgressionSoftCap(playerData.makePlayerTargets.intent, battingDelta, currentBatting);
-  playerData.makePlayerTargets.composure = applyProgressionSoftCap(playerData.makePlayerTargets.composure, battingDelta * 0.8, currentBatting);
+  playerData.makePlayerTargets.intent = applyProgressionSoftCap(playerData.makePlayerTargets.intent, battingDelta, currentBatting, currentOverall);
+  playerData.makePlayerTargets.composure = applyProgressionSoftCap(playerData.makePlayerTargets.composure, battingDelta * 0.8, currentBatting, currentOverall);
   if ((playerData.bowlingType || "none") !== "none") {
-    playerData.makePlayerTargets.econ = applyProgressionSoftCap(playerData.makePlayerTargets.econ, bowlingDelta * 0.7, currentBowling);
-    playerData.makePlayerTargets.wkts = applyProgressionSoftCap(playerData.makePlayerTargets.wkts, bowlingDelta * 0.7, currentBowling);
+    playerData.makePlayerTargets.econ = applyProgressionSoftCap(playerData.makePlayerTargets.econ, bowlingDelta * 0.7, currentBowling, currentOverall);
+    playerData.makePlayerTargets.wkts = applyProgressionSoftCap(playerData.makePlayerTargets.wkts, bowlingDelta * 0.7, currentBowling, currentOverall);
   }
   playerData.ratings = calculateRatings(playerData);
   applyLowOverallUsageBonuses(playerData, previousSnapshot, currentBatting, currentBowling);
@@ -7215,6 +8035,8 @@ function renderScoreLink(innings, anchor) {
 function initMakePlayerPage() {
   const fields = [
     "make-player-name",
+    "make-player-age",
+    "make-player-contract",
     "make-player-style",
     "make-player-bowling-type",
     "make-player-bowling-hand",
@@ -7336,6 +8158,10 @@ function renderMakePlayerPreview() {
     const preview = buildMakePlayerPreviewData();
     const ratings = calculateRatings(preview);
     const archetype = determinePlayerArchetype({ ...preview, ratings });
+    const previewAge = preview.age ?? "--";
+    const previewContract = preview.contract === null || preview.contract === undefined || preview.contract === ""
+      ? "--"
+      : `${Number(preview.contract).toFixed(Number(preview.contract) % 1 === 0 ? 0 : 1)} cr`;
     ratingsContainer.innerHTML = `
         <article class="top-player-card">
         <div class="player-header">
@@ -7346,6 +8172,7 @@ function renderMakePlayerPreview() {
           <span class="rating-badge">${ratings.overall}</span>
         </div>
           <p class="player-season-line">${archetype}</p>
+          <p class="player-season-line">Age ${previewAge} | Contract ${previewContract}</p>
           <p class="player-season-line">Fielding ${ratings.fielding} | Leadership ${ratings.leadership}</p>
           <p class="player-season-line">Bat ${ratings.batting} | Bowl ${ratings.bowling} | AR ${ratings.allRound}</p>
           <p class="player-season-line">Clutch ${ratings.clutch} | Intent ${ratings.intent} | Composure ${ratings.composure}</p>
@@ -7362,6 +8189,8 @@ function buildMakePlayerPreviewData() {
   const targetWkts = Number(document.getElementById("target-wkts").value);
   const targetFielding = Number(document.getElementById("target-fielding").value);
   const targetLeadership = Number(document.getElementById("leadership").value);
+  const inputAge = Number(document.getElementById("make-player-age").value);
+  const inputContract = Number(document.getElementById("make-player-contract").value);
   const inferredSourceRole = inferMakePlayerSourceRole({
     battingStyle: document.getElementById("make-player-style").value,
     bowlingType: document.getElementById("make-player-bowling-type").value,
@@ -7373,7 +8202,7 @@ function buildMakePlayerPreviewData() {
     econ: targetEcon,
     wkts: targetWkts
   });
-  return player(
+  const preview = player(
     document.getElementById("make-player-name").value.trim() || "Custom Prospect",
     inferredSourceRole,
     document.getElementById("make-player-style").value,
@@ -7388,6 +8217,10 @@ function buildMakePlayerPreviewData() {
     targetFielding,
     targetLeadership
   );
+  preview.age = Number.isFinite(inputAge) && inputAge > 0 ? inputAge : null;
+  preview.contract = Number.isFinite(inputContract) && inputContract >= 0 ? roundToOneDecimal(inputContract) : 1;
+  preview.marketValue = preview.contract;
+  return preview;
 }
 
 function renderMakePlayerCustomList() {
@@ -7837,27 +8670,45 @@ function getLogScaledContribution(value, minInput, maxInput, maxContribution, cu
   return (Math.log1p(normalized * curveFactor) / Math.log1p(curveFactor)) * maxContribution;
 }
 
-function getProgressionGainMultiplier(currentRating) {
-  if (currentRating >= 95) return 0.14;
-  if (currentRating >= 92) return 0.24;
-  if (currentRating >= 88) return 0.4;
-  if (currentRating >= 82) return 0.68;
+function getProgressionGainMultiplier(currentRating, overallRating = currentRating) {
+  const elitePressureRating = Math.max(currentRating, overallRating);
+  if (elitePressureRating >= 88) {
+    const distanceIntoEliteTier = elitePressureRating - 88;
+    return Math.max(0.05, 0.34 * Math.exp(-0.24 * distanceIntoEliteTier));
+  }
+  if (elitePressureRating >= 82) return 0.68;
   return 1;
 }
 
-function getEliteRegressionPenalty(currentRating) {
-  if (currentRating >= 96) return 0.55;
-  if (currentRating >= 93) return 0.28;
-  if (currentRating >= 90) return 0.12;
-  return 0;
+function getEliteRegressionPenalty(currentRating, overallRating = currentRating) {
+  const elitePressureRating = Math.max(currentRating, overallRating);
+  if (elitePressureRating < 88) {
+    return 0;
+  }
+
+  return clamp(
+    0.05 +
+    Math.max(0, elitePressureRating - 88) * 0.055 +
+    Math.max(0, elitePressureRating - 92) * 0.05,
+    0,
+    0.8
+  );
 }
 
-function applyProgressionSoftCap(targetValue, delta, currentRating) {
+function getEliteDeclineMultiplier(currentRating, overallRating = currentRating) {
+  const elitePressureRating = Math.max(currentRating, overallRating);
+  if (elitePressureRating >= 95) return 1.18;
+  if (elitePressureRating >= 92) return 1.11;
+  if (elitePressureRating >= 88) return 1.05;
+  return 1;
+}
+
+function applyProgressionSoftCap(targetValue, delta, currentRating, overallRating = currentRating) {
   if (delta > 0) {
-    return clamp(targetValue + delta * getProgressionGainMultiplier(currentRating), 25, 99);
+    return clamp(targetValue + delta * getProgressionGainMultiplier(currentRating, overallRating), 25, 99);
   }
   if (delta < 0) {
-    const declineMultiplier = currentRating >= 95 ? 1.07 : currentRating >= 90 ? 1.03 : 1;
+    const declineMultiplier = getEliteDeclineMultiplier(currentRating, overallRating);
     return clamp(targetValue + delta * declineMultiplier, 25, 99);
   }
   return clamp(targetValue, 25, 99);
@@ -8151,7 +9002,11 @@ function getFeaturedRoundResult(roundResults) {
 }
 
 function renderFeaturedResultMessage(message) {
-  document.getElementById("featured-result").innerHTML = `<p>${message}</p>`;
+  const container = document.getElementById("featured-result");
+  if (!container) {
+    return;
+  }
+  container.innerHTML = `<p>${message}</p>`;
 }
 
 function maybeLaunchChampionshipConfetti() {
