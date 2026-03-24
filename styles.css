@@ -1324,6 +1324,15 @@ button:hover {
   gap: 12px;
 }
 
+.player-header h3 {
+  margin: 0;
+}
+
+.player-header > div:first-child {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
 .scoreboard-top,
 #season-chip {
   color: var(--muted);
@@ -1681,7 +1690,7 @@ select option {
 }
 
 .team-cards {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   margin-top: 8px;
 }
 
@@ -1696,7 +1705,10 @@ select option {
 }
 
 .team-card {
+  display: flex;
+  flex-direction: column;
   padding: 18px;
+  min-height: 300px;
   position: relative;
   overflow: hidden;
   color: #ffffff;
@@ -1717,6 +1729,17 @@ select option {
   box-shadow: 0 0 0 1px rgba(245, 196, 81, 0.2) inset;
 }
 
+.team-card .team-card-top {
+  justify-content: center;
+  margin-top: 34px;
+  margin-bottom: 56px;
+  text-align: center;
+}
+
+.team-card .team-card-top > div {
+  width: 100%;
+}
+
 .team-subtitle {
   margin: 8px 0 18px;
   min-height: 42px;
@@ -1727,6 +1750,7 @@ select option {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
+  margin-top: auto;
 }
 
 .metric {
@@ -1752,6 +1776,15 @@ select option {
 .team-card h3,
 .team-card .metric strong {
   color: #ffffff;
+}
+
+.team-card .eyebrow {
+  font-size: 0.92rem;
+  letter-spacing: 0.18em;
+}
+
+.team-card h3 {
+  font-size: 1.4rem;
 }
 
 .formula-card {
@@ -1820,6 +1853,22 @@ select option {
 .top-player-card,
 .player-card {
   padding: 16px;
+  --player-card-accent: var(--accent-2);
+  --player-card-accent-rgb: 92, 225, 230;
+}
+
+.player-card.cap-orange-holder {
+  --player-card-accent: #ff8f1f;
+  --player-card-accent-rgb: 255, 143, 31;
+  border-color: rgba(255, 143, 31, 0.92);
+  box-shadow: 0 0 0 1px rgba(255, 143, 31, 0.34);
+}
+
+.player-card.cap-purple-holder {
+  --player-card-accent: #9d5cff;
+  --player-card-accent-rgb: 157, 92, 255;
+  border-color: rgba(157, 92, 255, 0.92);
+  box-shadow: 0 0 0 1px rgba(157, 92, 255, 0.34);
 }
 
 .player-card.is-starting-xi,
@@ -1834,6 +1883,20 @@ select option {
   box-shadow: 0 0 0 1px rgba(245, 196, 81, 0.32);
 }
 
+.player-card.cap-orange-holder,
+.player-card.cap-orange-holder.is-starting-xi,
+.player-card.cap-orange-holder.is-bench {
+  border-color: rgba(255, 143, 31, 0.92);
+  box-shadow: 0 0 0 1px rgba(255, 143, 31, 0.34);
+}
+
+.player-card.cap-purple-holder,
+.player-card.cap-purple-holder.is-starting-xi,
+.player-card.cap-purple-holder.is-bench {
+  border-color: rgba(157, 92, 255, 0.92);
+  box-shadow: 0 0 0 1px rgba(157, 92, 255, 0.34);
+}
+
 .rating-badge {
   min-width: 52px;
   text-align: center;
@@ -1841,7 +1904,36 @@ select option {
   border-radius: 14px;
   color: #08111f;
   background: linear-gradient(135deg, var(--accent), #fff2cf);
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+  align-self: flex-start;
 }
+
+.player-header h3 {
+  margin: 0;
+}
+
+.rating-badge.is-orange-cap-holder {
+  color: #fff8ef;
+  background: #ff8f1f;
+  box-shadow: 0 0 0 1px rgba(255, 143, 31, 0.55);
+}
+
+.rating-badge.is-orange-cap-holder::after {
+  display: none;
+}
+
+.rating-badge.is-purple-cap-holder {
+  color: #faf5ff;
+  background: #9d5cff;
+  box-shadow: 0 0 0 1px rgba(157, 92, 255, 0.55);
+}
+
+.rating-badge.is-purple-cap-holder::after {
+  display: none;
+}
+
 
 .player-grid {
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -1923,7 +2015,8 @@ select option {
 
 .lineup-helper-actions {
   display: grid;
-  grid-template-columns: repeat(2, max-content);
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
   justify-content: end;
   gap: 10px;
 }
@@ -1956,11 +2049,30 @@ select option {
   gap: 14px;
 }
 
+.coaching-plan-card {
+  display: grid;
+  gap: 18px;
+  margin-top: 18px;
+}
+
 .bowling-plan-modal {
   width: min(980px, 100%);
   max-height: calc(100vh - 48px);
   overflow: auto;
   overscroll-behavior: contain;
+}
+
+.coaching-plan-modal {
+  width: min(1040px, 100%);
+}
+
+.coaching-plan-title {
+  margin: 0;
+  color: var(--text);
+  font-family: "Rajdhani", sans-serif;
+  font-size: 1.1rem;
+  letter-spacing: 0.04em;
+  text-transform: none;
 }
 
 .bowling-plan-head {
@@ -1972,6 +2084,50 @@ select option {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.coaching-plan-style-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.coaching-plan-section {
+  display: grid;
+  gap: 12px;
+}
+
+.coaching-plan-subtitle {
+  margin: 0;
+  color: var(--text);
+  font-family: "Rajdhani", sans-serif;
+  letter-spacing: 0.04em;
+}
+
+.coaching-plan-rows {
+  display: grid;
+  gap: 12px;
+}
+
+.coaching-plan-mentor-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
+}
+
+.coaching-plan-slot small {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+@media (max-width: 780px) {
+  .coaching-plan-mentor-row {
+    grid-template-columns: 1fr;
+  }
+
+  .lineup-helper-actions {
+    grid-auto-flow: row;
+    justify-content: stretch;
+  }
 }
 
 .bowling-plan-chip {
@@ -2125,6 +2281,20 @@ select option {
   box-shadow: 0 10px 24px rgba(245, 196, 81, 0.22);
 }
 
+.impact-sub-btn.is-active.impact-cap-orange {
+  color: #ffffff;
+  background: #ff8f1f;
+  border-color: rgba(255, 143, 31, 0.9);
+  box-shadow: 0 10px 24px rgba(255, 143, 31, 0.24);
+}
+
+.impact-sub-btn.is-active.impact-cap-purple {
+  color: #ffffff;
+  background: #9d5cff;
+  border-color: rgba(157, 92, 255, 0.9);
+  box-shadow: 0 10px 24px rgba(157, 92, 255, 0.24);
+}
+
 .impact-sub-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
@@ -2213,7 +2383,7 @@ select option {
   place-items: center;
   padding: 8px 6px;
   border: 1px solid rgba(255, 255, 255, 0.06);
-  color: var(--accent-2);
+  color: var(--player-card-accent);
   cursor: pointer;
   transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
 }
@@ -2221,8 +2391,8 @@ select option {
 .player-ratings-toggle:hover,
 .player-ratings-toggle:focus-visible {
   transform: translateY(-1px);
-  border-color: rgba(102, 234, 199, 0.45);
-  background: rgba(102, 234, 199, 0.09);
+  border-color: rgba(var(--player-card-accent-rgb), 0.45);
+  background: rgba(var(--player-card-accent-rgb), 0.09);
   outline: none;
 }
 
@@ -2251,7 +2421,7 @@ select option {
 
 .lineup-card-stats-label {
   margin: 0 0 6px;
-  color: var(--accent-2);
+  color: var(--player-card-accent);
   font-size: 0.7rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -2309,7 +2479,7 @@ select option {
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.05);
   box-shadow: none;
-  color: var(--accent-2);
+  color: var(--player-card-accent);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2318,8 +2488,8 @@ select option {
 .lineup-trade-trigger:hover,
 .lineup-trade-trigger:focus-visible {
   transform: translateY(-1px);
-  border-color: rgba(92, 225, 230, 0.45);
-  background: rgba(92, 225, 230, 0.09);
+  border-color: rgba(var(--player-card-accent-rgb), 0.45);
+  background: rgba(var(--player-card-accent-rgb), 0.09);
   outline: none;
 }
 
@@ -2351,8 +2521,8 @@ select option {
 .lineup-card-back-toggle.is-active,
 .lineup-card-front-toggle.is-active {
   color: #0b2a70;
-  background: var(--accent-2);
-  border-color: var(--accent-2);
+  background: var(--player-card-accent);
+  border-color: var(--player-card-accent);
 }
 
 .lineup-card-front .player-season-line {
