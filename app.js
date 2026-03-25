@@ -1313,7 +1313,7 @@ function getCoachingPlan(teamCode, teamOverride = null) {
   state.coachingPlans = state.coachingPlans || {};
   const existing = state.coachingPlans[team.code] || createEmptyCoachingPlan();
   const normalized = {
-    battingStyle: ["balanced", "top-order-heavy", "anchored", "aggressive"].includes(existing.battingStyle)
+    battingStyle: ["balanced", "anchored", "aggressive"].includes(existing.battingStyle)
       ? existing.battingStyle
       : "balanced",
     bowlingStyle: ["balanced", "pace-heavy", "spin-heavy"].includes(existing.bowlingStyle)
@@ -5618,7 +5618,6 @@ function getCoachingStyleOptions(skill) {
     ]
     : [
       { value: "balanced", label: "Balanced", description: "" },
-      { value: "top-order-heavy", label: "Top-Order Heavy", description: "" },
       { value: "anchored", label: "Heliocentric", description: "" },
       { value: "aggressive", label: "Aggressive", description: "" }
     ];
@@ -6192,8 +6191,7 @@ function reorderLineupPlayer(teamCode, fromIndex, toIndex) {
 function pickCoachingAnchorName(players) {
   return [...(players || [])]
     .sort((a, b) => (
-      ((b.ratings?.batting || 0) + (b.ratings?.composure || 0) * 0.34 - (b.ratings?.intent || 0) * 0.08) -
-      ((a.ratings?.batting || 0) + (a.ratings?.composure || 0) * 0.34 - (a.ratings?.intent || 0) * 0.08)
+      (b.ratings?.composure || 0) - (a.ratings?.composure || 0)
     ))[0]?.name || null;
 }
 
@@ -8272,20 +8270,11 @@ function getBattingCoachingModifiers(battingTeam, striker, strikerIndex) {
   const isTopSix = strikerIndex < 6;
   const isAnchor = battingStyle === "anchored" && battingTeam?.battingAnchorName === striker?.name;
 
-  if (battingStyle === "top-order-heavy" && isTopFour) {
-    return {
-      battingEdgeBoost: 0.04,
-      dismissalDelta: -0.011,
-      boundaryBiasDelta: -0.032,
-      baseRunRateDelta: -0.02,
-      dotBiasDelta: -0.018
-    };
-  }
   if (battingStyle === "anchored" && isAnchor) {
     return {
       battingEdgeBoost: -0.01,
-      dismissalDelta: -0.01,
-      boundaryBiasDelta: -0.14,
+      dismissalDelta: -0.03,
+      boundaryBiasDelta: -0.20,
       baseRunRateDelta: -0.18,
       dotBiasDelta: 0.09
     };
@@ -8293,17 +8282,17 @@ function getBattingCoachingModifiers(battingTeam, striker, strikerIndex) {
   if (battingStyle === "anchored" && !isAnchor && isTopSix) {
     return {
       battingEdgeBoost: -0.06,
-      dismissalDelta: 0.008,
-      boundaryBiasDelta: -0.06,
-      baseRunRateDelta: -0.12,
+      dismissalDelta: 0.012,
+      boundaryBiasDelta: 0,
+      baseRunRateDelta: 0,
       dotBiasDelta: 0.04
     };
   }
   if (battingStyle === "aggressive" && isTopSix) {
     return {
       battingEdgeBoost: 0.055,
-      dismissalDelta: 0.016,
-      boundaryBiasDelta: 0.055,
+      dismissalDelta: 0.005,
+      boundaryBiasDelta: 0.48,
       baseRunRateDelta: 0.11,
       dotBiasDelta: 0.018
     };
@@ -9284,7 +9273,7 @@ function getSeasonLeaderboardDefinition(key) {
       secondary: (playerData) => `${formatOversFromBalls(playerData.bestBowlingOversBalls)} overs | Econ ${playerData.bestBowlingEconomy.toFixed(2)}`
     },
     battingAverage: {
-    eligible: (playerData) => playerData.seasonRuns >= thresholds.battingAverageRuns && playerData.seasonDismissals >= thresholds.battingAverageDismissals,
+    eligible: (playerData) => playerData.seasonRuns >= thresholds.battingAverageRuns,
       sort: (a, b) => b.seasonBattingAverage - a.seasonBattingAverage || b.seasonRuns - a.seasonRuns,
       value: (playerData) => playerData.seasonBattingAverage.toFixed(2),
       secondary: (playerData) => `${playerData.seasonRuns} runs | ${playerData.seasonDismissals} dismissals`
@@ -9361,7 +9350,7 @@ function getAllTimeLeaderboardDefinition(key) {
       secondary: (playerData) => `${formatOversFromBalls(playerData.bestBowlingOversBalls)} overs | Econ ${playerData.bestBowlingEconomy.toFixed(2)}`
     },
     battingAverage: {
-      eligible: (playerData) => playerData.seasonRuns >= 200 && playerData.seasonDismissals >= 5,
+      eligible: (playerData) => playerData.seasonRuns >= 200,
       sort: (a, b) => b.seasonBattingAverage - a.seasonBattingAverage || b.seasonRuns - a.seasonRuns,
       value: (playerData) => playerData.seasonBattingAverage.toFixed(2),
       secondary: (playerData) => `${playerData.seasonRuns} runs | ${playerData.seasonDismissals} dismissals`
