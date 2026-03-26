@@ -1215,6 +1215,25 @@ function isEligibleCoachingPlayer(playerData, skill, role = "either") {
   return bowlingRating > 25;
 }
 
+function getCoachingBowlingFamily(playerData) {
+  const bowlingType = playerData?.bowlingType || "none";
+  if (bowlingType === "spinner") return "spin";
+  if (bowlingType === "pacer") return "pace";
+  return "none";
+}
+
+function isValidBowlingMentorshipPair(team, mentorName, menteeName) {
+  if (!mentorName || !menteeName) {
+    return true;
+  }
+  const mentor = team?.players?.find((playerData) => playerData.name === mentorName);
+  const mentee = team?.players?.find((playerData) => playerData.name === menteeName);
+  if (!mentor || !mentee) {
+    return false;
+  }
+  return getCoachingBowlingFamily(mentor) === getCoachingBowlingFamily(mentee);
+}
+
 function getCoachingMentorCandidates(team, skill) {
   if (!team?.players?.length) {
     return [];
@@ -1292,7 +1311,8 @@ function normalizeMentorshipPairs(team, skill, pairs) {
       !validNames.has(mentee) ||
       mentee === mentor ||
       usedMentors.has(mentee) ||
-      usedMentees.has(mentee)
+      usedMentees.has(mentee) ||
+      (skill === "bowling" && !isValidBowlingMentorshipPair(team, mentor, mentee))
     ) {
       mentee = "";
     }
@@ -1313,10 +1333,10 @@ function getCoachingPlan(teamCode, teamOverride = null) {
   state.coachingPlans = state.coachingPlans || {};
   const existing = state.coachingPlans[team.code] || createEmptyCoachingPlan();
   const normalized = {
-    battingStyle: ["balanced", "anchored", "aggressive"].includes(existing.battingStyle)
+    battingStyle: ["balanced", "anchored", "two-anchors", "two-initiator", "anchressor"].includes(existing.battingStyle)
       ? existing.battingStyle
       : "balanced",
-    bowlingStyle: ["balanced", "pace-heavy", "spin-heavy"].includes(existing.bowlingStyle)
+    bowlingStyle: ["balanced", "pace-heavy", "spin-heavy", "stock-centric", "strike-centric"].includes(existing.bowlingStyle)
       ? existing.bowlingStyle
       : "balanced",
     mentorship: {
@@ -4633,6 +4653,77 @@ function buildLineupBackStatsFromSeasonEntry(seasonStats) {
   };
 }
 
+function formatSignedModifier(value) {
+  const numeric = Number(value) || 0;
+  const display = numeric % 1 === 0 ? numeric.toFixed(0) : numeric.toFixed(3).replace(/\.?0+$/, "");
+  return numeric > 0 ? `+${display}` : display;
+}
+
+function getPlayerBoundaryBiasDelta(teamCode, playerData) {
+  const team = findTeam(teamCode);
+  if (!team || !playerData?.name) {
+    return 0;
+  }
+
+  const lineupTeam = buildLineupTeam(team);
+  const battingOrder = lineupTeam?.battingPlayers || lineupTeam?.players || [];
+  const strikerIndex = battingOrder.findIndex((entry) => entry?.name === playerData.name);
+  if (strikerIndex < 0) {
+    return 0;
+  }
+
+  const nonStrikerIndex = strikerIndex % 2 === 0
+    ? Math.min(strikerIndex + 1, battingOrder.length - 1)
+    : Math.max(0, strikerIndex - 1);
+  const striker = battingOrder[strikerIndex];
+  const nonStriker = battingOrder[nonStrikerIndex] || striker;
+  return getBattingCoachingModifiers(
+    lineupTeam,
+    striker,
+    strikerIndex,
+    nonStriker,
+    nonStrikerIndex,
+    0
+  ).boundaryBiasDelta || 0;
+}
+
+function getPlayerBoundaryBias(teamCode, playerData) {
+  const runtimePlayer = ensurePlayerRuntimeState(playerData);
+  const boundaryBiasDelta = getPlayerBoundaryBiasDelta(teamCode, runtimePlayer);
+  return clamp(
+    0.12 +
+    (getEffectiveIntentRating(runtimePlayer) - 50) * 0.0034 +
+    (getEffectiveBattingRating(runtimePlayer) - 55) * 0.0022 +
+    boundaryBiasDelta,
+    0.08,
+    1.0
+  );
+}
+
+function getPlayerDotBias(teamCode, playerData) {
+  const team = findTeam(teamCode);
+  const runtimePlayer = ensurePlayerRuntimeState(playerData);
+  const composureRating = getEffectiveComposureRating(runtimePlayer);
+  const lineupTeam = team ? buildLineupTeam(team) : null;
+  const battingOrder = lineupTeam?.battingPlayers || lineupTeam?.players || [];
+  const strikerIndex = battingOrder.findIndex((entry) => entry?.name === runtimePlayer.name);
+  const nonStrikerIndex = strikerIndex >= 0
+    ? (strikerIndex % 2 === 0 ? Math.min(strikerIndex + 1, battingOrder.length - 1) : Math.max(0, strikerIndex - 1))
+    : 0;
+  const striker = strikerIndex >= 0 ? battingOrder[strikerIndex] : runtimePlayer;
+  const nonStriker = strikerIndex >= 0 ? (battingOrder[nonStrikerIndex] || striker) : runtimePlayer;
+  const battingCoaching = lineupTeam
+    ? getBattingCoachingModifiers(lineupTeam, striker, Math.max(0, strikerIndex), nonStriker, nonStrikerIndex, 0)
+    : { dotBiasDelta: 0 };
+  return clamp(
+    0.32 -
+    (composureRating - 55) * 0.0022 -
+    (battingCoaching.dotBiasDelta || 0),
+    0.14,
+    0.6
+  );
+}
+
 function buildLineupBackProfile(playerData, teamCode) {
   const seasonStats = getSeasonSnapshotForPlayer(teamCode, playerData);
   const highestScore = getHistoricHighestScore(playerData, seasonStats);
@@ -4644,7 +4735,6 @@ function buildLineupBackProfile(playerData, teamCode) {
     : "--";
   const runtimePlayer = ensurePlayerRuntimeState(playerData);
   const awardCounts = runtimePlayer.awardCounts;
-
   return {
     summary: "Player Details",
     details: [
@@ -5561,7 +5651,7 @@ function getMentorGrowthMultiplier(team, mentorName, skill) {
     return 1;
   }
   const mentorRating = getMentorSkillRating(mentor, skill);
-  return clamp(1 + Math.max(0, mentorRating - 70) / 145, 1, 1.2);
+  return clamp(1 + Math.max(0, mentorRating - 70) / 72.5, 1, 1.4);
 }
 
 function getCoachingMentorshipMultiplier(teamCode, skill, menteeName, teamOverride = null) {
@@ -5596,13 +5686,17 @@ function setCoachingPlanStyle(teamCode, skill, styleValue) {
 
 function updateCoachingMentorship(teamCode, skill, pairIndex, field, value) {
   const plan = getCoachingPlan(teamCode);
+  const team = findTeam(teamCode);
   const pairs = plan.mentorship?.[skill] || [];
   if (!pairs[pairIndex]) {
     return;
   }
 
   pairs[pairIndex][field] = value || "";
-  if (field === "mentor" && pairs[pairIndex].mentee === pairs[pairIndex].mentor) {
+  if (
+    (field === "mentor" && pairs[pairIndex].mentee === pairs[pairIndex].mentor) ||
+    (skill === "bowling" && !isValidBowlingMentorshipPair(team, pairs[pairIndex].mentor, pairs[pairIndex].mentee))
+  ) {
     pairs[pairIndex].mentee = "";
   }
   state.coachingPlans[teamCode] = deepCloneSerializable(plan);
@@ -5613,13 +5707,17 @@ function getCoachingStyleOptions(skill) {
   return skill === "bowling"
     ? [
       { value: "balanced", label: "Balanced", description: "" },
-      { value: "pace-heavy", label: "Pace-Heavy", description: "" },
-      { value: "spin-heavy", label: "Spin-Heavy", description: "" }
+      { value: "pace-heavy", label: "Pace-heavy", description: "" },
+      { value: "spin-heavy", label: "Spin-Heavy", description: "" },
+      { value: "stock-centric", label: "Stock-Centric", description: "" },
+      { value: "strike-centric", label: "Strike-Centric", description: "" }
     ]
     : [
       { value: "balanced", label: "Balanced", description: "" },
       { value: "anchored", label: "Heliocentric", description: "" },
-      { value: "aggressive", label: "Aggressive", description: "" }
+      { value: "two-anchors", label: "Two-Anchor", description: "" },
+      { value: "two-initiator", label: "Two-Initiator", description: "" },
+      { value: "anchressor", label: "Anchressor", description: "" }
     ];
 }
 
@@ -5640,9 +5738,16 @@ function getCoachingMenteeOptions(team, skill, pairIndex, plan) {
       .filter(Boolean)
   );
   const currentMentor = plan.mentorship?.[skill]?.[pairIndex]?.mentor || "";
+  const mentorPlayer = team.players.find((playerData) => playerData.name === currentMentor);
+  const requiredBowlingFamily = skill === "bowling" ? getCoachingBowlingFamily(mentorPlayer) : "none";
   return [...team.players]
     .map((playerData) => ensurePlayerRuntimeState(playerData))
     .filter((playerData) => isEligibleCoachingPlayer(playerData, skill, "mentee"))
+    .filter((playerData) => (
+      skill !== "bowling" ||
+      requiredBowlingFamily === "none" ||
+      getCoachingBowlingFamily(playerData) === requiredBowlingFamily
+    ))
     .filter((playerData) => (
       playerData.name !== currentMentor &&
       !selectedMentees.has(playerData.name) &&
@@ -5666,9 +5771,9 @@ function renderCoachingPlanModal(teamCode = state.franchiseTeam) {
   const battingMentors = getCoachingMentorCandidates(team, "batting");
   const bowlingMentors = getCoachingMentorCandidates(team, "bowling");
   const renderStyleSelect = (skill, currentValue) => `
-    <label class="lineup-slot coaching-plan-slot">
-      <span>${skill === "batting" ? "Batting Style" : "Bowling Style"}</span>
-      <select data-coaching-style="${skill}">
+          <label class="lineup-slot coaching-plan-slot">
+            <span>${skill === "batting" ? "Batting System" : "Bowling System"}</span>
+            <select data-coaching-style="${skill}">
         ${getCoachingStyleOptions(skill).map((option) => `
           <option value="${option.value}" ${option.value === currentValue ? "selected" : ""}>${option.label}</option>
         `).join("")}
@@ -5680,7 +5785,7 @@ function renderCoachingPlanModal(teamCode = state.franchiseTeam) {
     return `
       <article class="coaching-plan-mentor-row">
         <label class="lineup-slot coaching-plan-slot">
-          <span>${skill === "batting" ? "Batting Mentor" : "Bowling Mentor"} ${index + 1}</span>
+          <span>Mentor</span>
           <select data-coaching-mentor="${skill}" data-coaching-index="${index}">
             ${candidates.map((playerData) => `
               <option value="${escapeHtml(playerData.name)}" ${playerData.name === pair.mentor ? "selected" : ""}>
@@ -5861,6 +5966,9 @@ function getBowlingCoachingPreferenceBonus(playerData, bowlingStyle = "balanced"
   }
   if (bowlingStyle === "spin-heavy") {
     return getBowlingStyleFamily(playerData) === "spin" ? 5 : -1.5;
+  }
+  if (bowlingStyle === "stock-centric" || bowlingStyle === "strike-centric") {
+    return 0;
   }
   return 0;
 }
@@ -8264,37 +8372,103 @@ function getMatchImpactKey(name, teamCode) {
   return `${teamCode}::${name}`;
 }
 
-function getBattingCoachingModifiers(battingTeam, striker, strikerIndex) {
+function getBattingCoachingModifiers(battingTeam, striker, strikerIndex, nonStriker, nonStrikerIndex, overIndex = 0) {
   const battingStyle = battingTeam?.coachingPlan?.battingStyle || "balanced";
-  const isTopFour = strikerIndex < 4;
+  const systemActive = overIndex < 16;
+  const isOpener = strikerIndex < 2;
   const isTopSix = strikerIndex < 6;
-  const isAnchor = battingStyle === "anchored" && battingTeam?.battingAnchorName === striker?.name;
+  const isAnchor = systemActive && battingStyle === "anchored" && battingTeam?.battingAnchorName === striker?.name;
+  const isAnchressorEligible = systemActive && battingStyle === "anchressor" && strikerIndex < 6;
+  const anchressorTopSix = isAnchressorEligible
+    ? (battingTeam?.battingPlayers || battingTeam?.players || []).slice(0, 6)
+    : [];
+  const anchressorAggressors = [...anchressorTopSix]
+    .sort((a, b) => (
+      ((getEffectiveIntentRating(b) - getEffectiveComposureRating(b)) -
+      (getEffectiveIntentRating(a) - getEffectiveComposureRating(a))) ||
+      a.name.localeCompare(b.name)
+    ))
+    .slice(0, 3)
+    .map((playerData) => playerData.name);
+  const isAnchressorAnchor = (
+    isAnchressorEligible &&
+    !anchressorAggressors.includes(striker?.name)
+  );
+  const isAnchressorAggressor = (
+    isAnchressorEligible &&
+    anchressorAggressors.includes(striker?.name)
+  );
 
   if (battingStyle === "anchored" && isAnchor) {
     return {
-      battingEdgeBoost: -0.01,
+      battingEdgeBoost: 0,
       dismissalDelta: -0.03,
       boundaryBiasDelta: -0.20,
-      baseRunRateDelta: -0.18,
-      dotBiasDelta: 0.09
+      baseRunRateDelta: -0.19,
+      dotBiasDelta: -0.09
     };
   }
-  if (battingStyle === "anchored" && !isAnchor && isTopSix) {
+  if (systemActive && battingStyle === "anchored" && !isAnchor && isTopSix) {
     return {
-      battingEdgeBoost: -0.06,
+      battingEdgeBoost: 0,
+      dismissalDelta: 0.012,
+      boundaryBiasDelta: 0.15,
+      baseRunRateDelta: -0.06,
+      dotBiasDelta: 0.015
+    };
+  }
+  if (systemActive && battingStyle === "two-anchors" && isOpener) {
+    return {
+      battingEdgeBoost: 0,
+      dismissalDelta: -0.01,
+      boundaryBiasDelta: -1.125,
+      baseRunRateDelta: -0.10,
+      dotBiasDelta: -0.007
+    };
+  }
+  if (systemActive && battingStyle === "two-anchors" && !isOpener && isTopSix) {
+    return {
+      battingEdgeBoost: 0,
       dismissalDelta: 0.012,
       boundaryBiasDelta: 0,
-      baseRunRateDelta: 0,
-      dotBiasDelta: 0.04
+      baseRunRateDelta: -0.06,
+      dotBiasDelta: 0.015
     };
   }
-  if (battingStyle === "aggressive" && isTopSix) {
+  if (systemActive && battingStyle === "two-initiator" && isOpener) {
     return {
-      battingEdgeBoost: 0.055,
-      dismissalDelta: 0.005,
-      boundaryBiasDelta: 0.48,
+      battingEdgeBoost: 0,
+      dismissalDelta: 0.020,
+      boundaryBiasDelta: 0.28,
       baseRunRateDelta: 0.11,
-      dotBiasDelta: 0.018
+      dotBiasDelta: 1
+    };
+  }
+  if (systemActive && battingStyle === "two-initiator" && !isOpener && isTopSix) {
+    return {
+      battingEdgeBoost: 0,
+      dismissalDelta: -0.004,
+      boundaryBiasDelta: -0.05,
+      baseRunRateDelta: 0,
+      dotBiasDelta: -0.01
+    };
+  }
+  if (isAnchressorAnchor) {
+    return {
+      battingEdgeBoost: 0,
+      dismissalDelta: -0.012,
+      boundaryBiasDelta: -0.45,
+      baseRunRateDelta: -0.095,
+      dotBiasDelta: -0.025
+    };
+  }
+  if (isAnchressorAggressor) {
+    return {
+      battingEdgeBoost: 0,
+      dismissalDelta: 0.01,
+      boundaryBiasDelta: 0.25,
+      baseRunRateDelta: 0.11,
+      dotBiasDelta: 0.4
     };
   }
   return {
@@ -8319,6 +8493,22 @@ function getBowlingCoachingMatchModifiers(bowlingTeam, currentBowler) {
     return family === "spin"
       ? { bowlingEdgeBoost: 0.055, dismissalDelta: 0.008, boundaryBiasDelta: -0.02, dotBiasDelta: 0.012 }
       : { bowlingEdgeBoost: -0.015, dismissalDelta: -0.003, boundaryBiasDelta: 0.008, dotBiasDelta: -0.006 };
+  }
+  if (bowlingStyle === "stock-centric") {
+    return {
+      bowlingEdgeBoost: 0.03,
+      dismissalDelta: -0.008,
+      boundaryBiasDelta: -0.03,
+      dotBiasDelta: 0.04
+    };
+  }
+  if (bowlingStyle === "strike-centric") {
+    return {
+      bowlingEdgeBoost: -0.01,
+      dismissalDelta: 0.014,
+      boundaryBiasDelta: 0.018,
+      dotBiasDelta: -0.020
+    };
   }
   return {
     bowlingEdgeBoost: 0,
@@ -8382,7 +8572,15 @@ function generateInningsBreakdown(battingTeam, bowlingTeam, context) {
       const battingModifier = getBattingConditionsModifier(striker, bowlingTeam.attackProfile, pitch, strikerIndex);
       const bowlingModifier = getBowlingConditionsModifier(currentBowler, pitch, battingComposition);
       const deathFactor = getDeathBowlingFactor(currentBowler, deathShare);
-      const battingCoaching = getBattingCoachingModifiers(battingTeam, striker, strikerIndex);
+      const nonStriker = battingOrder[nonStrikerIndex];
+      const battingCoaching = getBattingCoachingModifiers(
+        battingTeam,
+        striker,
+        strikerIndex,
+        nonStriker,
+        nonStrikerIndex,
+        overIndex
+      );
       const bowlingCoaching = getBowlingCoachingMatchModifiers(bowlingTeam, currentBowler);
       const oversRemaining = Math.max(1, 20 - overIndex - (legalBallsThisOver / 6));
       const requiredRate = chasing && target ? Math.max(0, (target - total) / oversRemaining) : 0;
@@ -8633,7 +8831,7 @@ function resolveBallRuns({
     (bowlingCoaching.boundaryBiasDelta || 0) +
     Math.max(0, requiredRate - 9) * 0.018,
     0.08,
-    0.48
+    0.60
   );
   const sixBias = clamp(
     0.16 +
@@ -9491,10 +9689,7 @@ function getLogScaledContribution(value, minInput, maxInput, maxContribution, cu
 
 function getProgressionGainMultiplier(currentRating, overallRating = currentRating) {
   const elitePressureRating = Math.max(currentRating, overallRating);
-  if (elitePressureRating >= 88) {
-    const distanceIntoEliteTier = elitePressureRating - 88;
-    return Math.max(0.05, 0.34 * Math.exp(-0.24 * distanceIntoEliteTier));
-  }
+  if (elitePressureRating >= 88) return 0.34;
   if (elitePressureRating >= 82) return 0.68;
   return 1;
 }
