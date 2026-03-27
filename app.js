@@ -30,7 +30,6 @@ const SAVE_SLOT_COUNT = 3;
 const SAVE_SLOT_PREFIX = "cricketsim.save.slot.";
 const OFFSEASON_SALARY_CAP = 125;
 const MAX_ROSTER_SIZE = 20;
-const REFERENCE_SEASON_YEAR = 2025;
 const OFFSEASON_NEW_PLAYER_COUNT = 30;
 const OFFSEASON_NEW_PLAYER_MIN_OVR = 64;
 const OFFSEASON_NEW_PLAYER_MAX_OVR = 82;
@@ -720,9 +719,6 @@ function restoreLoadedState(payload) {
     customSelections: deepCloneSerializable(savedState.customSelections || buildDefaultCustomSelections()),
     dataError: null
   });
-  if (!Array.isArray(state.seasonHistory) || !state.seasonHistory.length) {
-    state.seasonHistory = buildReferenceSeasonHistory();
-  }
   state.teamLineups = deepCloneSerializable(savedState.teamLineups || {});
 
   teams.forEach((team) => {
@@ -1148,8 +1144,6 @@ function initializeStateFromTeams() {
   refreshGeneratedContracts();
   state.recordedAwardSeasonYear = null;
   state.season = resetSeason();
-  state.seasonHistory = buildReferenceSeasonHistory();
-  state.seasonTradeState = createEmptyTradeState();
   syncFeaturedMatchToSeason();
   state.customSelections = buildDefaultCustomSelections();
   state.teamLineups = buildDefaultTeamLineups();
@@ -1164,108 +1158,6 @@ function initializeStateFromTeams() {
   state.bowlingPlanValidationTeam = null;
   state.lineupValidationTeam = null;
   state.lastSeasonLossChampion = null;
-}
-
-function getReferenceSeasonTeamCode(playerData, fallbackTeamCode = null) {
-  return playerData?.originalTeamCode || playerData?.teamCode || fallbackTeamCode || null;
-}
-
-function estimateReferenceSeasonMatches(playerData) {
-  ensurePlayerRuntimeState(playerData);
-  const overall = playerData?.ratings?.overall || 50;
-  const contract = Number(playerData?.contract) || 0;
-  const games = Math.round(
-    4 +
-    Math.max(0, overall - 55) / 6 +
-    Math.min(3.5, contract / 5) +
-    (playerData?.opener ? 1 : 0) +
-    (playerData?.deathBowl ? 1 : 0)
-  );
-  return clamp(games, 3, 14);
-}
-
-function buildReferenceSeasonSnapshot(playerData, fallbackTeamCode = null) {
-  ensurePlayerRuntimeState(playerData);
-  const teamCode = getReferenceSeasonTeamCode(playerData, fallbackTeamCode);
-  const snapshot = createSeasonPlayerSnapshot(playerData, teamCode);
-  const matchesPlayed = estimateReferenceSeasonMatches(playerData);
-  const battingRating = playerData?.ratings?.batting || 25;
-  const bowlingRating = playerData?.ratings?.bowling || 25;
-  const wktsRating = playerData?.ratings?.wkts || 25;
-  const econRating = playerData?.ratings?.econ || 25;
-  const fieldingRating = playerData?.ratings?.fielding || 70;
-  const role = playerData?.role || "";
-  const hasBowlingRole = (playerData?.bowlingType || "none") !== "none" && bowlingRating > 25;
-  const battingUsage = clamp(
-    0.35 +
-    Math.max(0, battingRating - 50) / 85 +
-    (playerData?.opener ? 0.18 : 0) +
-    (/closer|shotmaker|anchor|opener/i.test(role) ? 0.08 : 0),
-    0.25,
-    1
-  );
-  const runs = Math.max(
-    0,
-    Math.round(matchesPlayed * battingUsage * Math.max(10, (battingRating - 34) * 4.6 + (playerData?.ratings?.clutch || 25) * 0.85))
-  );
-  const strikeRate = clamp(92 + ((playerData?.ratings?.intent || 50) - 45) * 1.45 + (playerData?.opener ? 5 : 0), 88, 196);
-  const ballsFaced = runs > 0 ? Math.max(1, Math.round((runs / strikeRate) * 100)) : 0;
-  const dismissals = runs > 0 ? clamp(Math.round(matchesPlayed * (0.72 - ((playerData?.ratings?.composure || 50) - 50) * 0.004)), 1, matchesPlayed) : 0;
-  const fours = runs > 0 ? Math.max(0, Math.round(runs * 0.105)) : 0;
-  const sixes = runs > 0 ? Math.max(0, Math.round(runs * (0.028 + ((playerData?.ratings?.intent || 50) - 50) * 0.00045))) : 0;
-  const oversPerMatch = hasBowlingRole
-    ? clamp(
-      0.8 +
-      Math.max(0, bowlingRating - 45) / 16 +
-      (playerData?.deathBowl ? 0.45 : 0) +
-      (/all-round|spinner|seamer|enforcer/i.test(role) ? 0.2 : 0),
-      0.8,
-      4
-    )
-    : 0;
-  const seasonOvers = hasBowlingRole ? roundToOneDecimal(matchesPlayed * oversPerMatch) : 0;
-  const seasonOversBalls = hasBowlingRole ? Math.round(seasonOvers * 6) : 0;
-  const seasonWickets = hasBowlingRole
-    ? Math.max(0, Math.round(matchesPlayed * Math.max(0.18, (wktsRating - 34) * 0.05) + (playerData?.deathBowl ? 2 : 0)))
-    : 0;
-  const economyRate = hasBowlingRole ? clamp(10.6 - (econRating * 0.05), 5.8, 10.2) : 99;
-  const seasonRunsConceded = hasBowlingRole ? Math.round((seasonOversBalls / 6) * economyRate) : 0;
-  const mvpScore = roundToOneDecimal(
-    Math.max(1, runs / 27 + seasonWickets * 2.6 + (playerData?.ratings?.overall || 50) * 0.1 + (playerData?.opener ? 1.5 : 0) + (playerData?.deathBowl ? 1.5 : 0))
-  );
-
-  Object.assign(snapshot, {
-    seasonYear: REFERENCE_SEASON_YEAR,
-    teamCode,
-    matchesPlayed,
-    seasonRuns: runs,
-    seasonWickets,
-    seasonBallsFaced: ballsFaced,
-    seasonDismissals: dismissals,
-    seasonRunsConceded,
-    seasonOversBalls,
-    seasonFours: fours,
-    seasonSixes: sixes,
-    seasonCatches: Math.max(0, Math.round(matchesPlayed * (fieldingRating - 58) / 30)),
-    mvpScore,
-    impactAppearances: Math.min(matchesPlayed, Math.round(matchesPlayed * 0.35 + (playerData?.opener || playerData?.deathBowl ? 2 : 0))),
-    highestScore: runs > 0 ? Math.max(16, Math.round(runs / Math.max(1, matchesPlayed * 0.32))) : 0,
-    highestScoreBalls: runs > 0 ? Math.max(10, Math.round(ballsFaced / Math.max(1, matchesPlayed * 0.34))) : 0,
-    highestScoreNotOut: Boolean(runs > 0 && dismissals < matchesPlayed * 0.75),
-    bestBowlingWickets: seasonWickets > 0 ? clamp(Math.round(Math.min(5, 2 + seasonWickets / Math.max(1, matchesPlayed * 2.8))), 1, 5) : 0,
-    bestBowlingRuns: seasonWickets > 0 ? Math.max(8, Math.round(seasonRunsConceded / Math.max(1, seasonWickets * 1.3))) : 999,
-    bestBowlingOversBalls: seasonWickets > 0 ? clamp(Math.round(Math.min(24, seasonOversBalls / Math.max(1, matchesPlayed * 0.65))), 6, 24) : 0,
-    bestBowlingEconomy: seasonWickets > 0 ? clamp(roundToOneDecimal(economyRate - 0.9), 4.5, 9.5) : 99
-  });
-
-  hydrateSeasonRateStats(snapshot);
-  return snapshot;
-}
-
-function buildReferenceSeasonHistory() {
-  return teams.flatMap((team) =>
-    team.players.map((playerData) => buildReferenceSeasonSnapshot(playerData, team.code))
-  );
 }
 
 function buildDefaultTeamLineups() {
@@ -2549,15 +2441,7 @@ function createEmptyTradeState(seedPlayer = null) {
 }
 
 function canOpenTradeWindow() {
-  if (state.offseason?.phase === "trade") {
-    return true;
-  }
-  const seasonHasStarted = Boolean(
-    (state.season?.currentRound || 0) > 0 ||
-    (state.season?.featuredMatches?.length || 0) > 0 ||
-    state.season?.playoffs
-  );
-  return Boolean(getTradeTeam(state.franchiseTeam)) && !seasonHasStarted;
+  return Boolean(state.offseason && state.offseason.phase === "trade");
 }
 
 function openTradeModal(seedPlayerId) {
@@ -2611,25 +2495,18 @@ function closeTradeModal() {
 }
 
 function getPreviousSeasonSnapshotForPlayer(playerData) {
-  if (!playerData) {
+  if (!playerData || !state.season?.playerStats?.length) {
     return null;
   }
   const identifiers = [
     `${playerData.originalTeamCode || playerData.teamCode || ""}::${playerData.customId || playerData.name}`,
     `${playerData.teamCode || ""}::${playerData.customId || playerData.name}`
   ].filter(Boolean);
-  const completedHistory = (state.seasonHistory || [])
-    .filter((entry) => (entry.seasonYear || 0) < (state.seasonYear || REFERENCE_SEASON_YEAR + 1))
-    .sort((a, b) => (b.seasonYear || 0) - (a.seasonYear || 0));
-  const directMatch = completedHistory.find((entry) => identifiers.includes(`${entry.teamCode}::${entry.customId || entry.name}`));
+  const directMatch = state.season.playerStats.find((entry) => identifiers.includes(`${entry.teamCode}::${entry.customId || entry.name}`));
   if (directMatch) {
     return directMatch;
   }
-  const nameMatch = completedHistory.find((entry) => (entry.customId && playerData.customId && entry.customId === playerData.customId) || entry.name === playerData.name);
-  if (nameMatch) {
-    return nameMatch;
-  }
-  return buildReferenceSeasonSnapshot(playerData);
+  return state.season.playerStats.find((entry) => (entry.customId && playerData.customId && entry.customId === playerData.customId) || entry.name === playerData.name) || null;
 }
 
 function estimateProjectedSeasonImpact(playerData) {
@@ -2653,37 +2530,6 @@ function estimateProjectedSeasonImpact(playerData) {
   return roundToOneDecimal(baseProjection);
 }
 
-function getCompletedSeasonFairTradeValue(playerData) {
-  if (!playerData) {
-    return 0;
-  }
-  const snapshot = getPreviousSeasonSnapshotForPlayer(playerData);
-  const playedGames = Number(snapshot?.matchesPlayed) || 0;
-  if (!snapshot || playedGames === 0) {
-    return 0;
-  }
-  const age = Number(playerData.age) || 27;
-  const ageMultiplier = age >= 32 ? 0.98 : 1;
-  return Math.max(1, Number(snapshot.mvpScore) || 0) * ageMultiplier;
-}
-
-function getFallbackFairTradeCoefficient() {
-  const tradePool = getTradeTeamPool().flatMap((team) => team.players || []);
-  const completedFairValues = tradePool
-    .map((playerData) => getCompletedSeasonFairTradeValue(playerData))
-    .filter((value) => value > 0)
-    .sort((a, b) => b - a);
-
-  if (!completedFairValues.length) {
-    return 0;
-  }
-
-  const fiveStarCount = Math.max(1, Math.ceil(completedFairValues.length * 0.05));
-  const fiveStarFairTradeValue = completedFairValues[Math.min(fiveStarCount - 1, completedFairValues.length - 1)] || 0;
-  const scaledCoefficient = 2 * Math.min(1, fiveStarFairTradeValue / 500);
-  return roundToOneDecimal(scaledCoefficient);
-}
-
 function getPlayerTradeValue(playerData) {
   if (!playerData) {
     return 0;
@@ -2691,18 +2537,19 @@ function getPlayerTradeValue(playerData) {
   ensurePlayerRuntimeState(playerData);
   const snapshot = getPreviousSeasonSnapshotForPlayer(playerData);
   const playedGames = Number(snapshot?.matchesPlayed) || 0;
+  const age = Number(playerData.age) || 27;
+  const ageMultiplier = age >= 32 ? 0.98 : 1;
   const overall = Number(playerData.ratings?.overall) || 50;
-  const fallbackCoefficient = getFallbackFairTradeCoefficient();
 
   const fairTradeValue = (!snapshot || playedGames === 0)
-    ? estimateProjectedSeasonImpact(playerData) * fallbackCoefficient
-    : getCompletedSeasonFairTradeValue(playerData);
+    ? estimateProjectedSeasonImpact(playerData) * 2
+    : Math.max(1, Number(snapshot.mvpScore) || 0) * ageMultiplier;
 
   return roundToOneDecimal(overall * 0.3 + fairTradeValue * 0.7);
 }
 
 function getTradeValueStarRating(playerData) {
-  const tradePool = getTradeTeamPool().flatMap((team) => team.players || []);
+  const tradePool = state.offseason?.workingTeams?.flatMap((team) => team.players || []) || [];
   if (!tradePool.length) {
     return 1;
   }
